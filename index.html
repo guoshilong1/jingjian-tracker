@@ -122,6 +122,26 @@ async function updateRecord(id, items) {
   }
 }
 
+// 把仅存于本机浏览器（localStorage）的记录迁移到 Supabase 云端，便于手机/其他设备查看
+async function migrateLocalToCloud() {
+  const local = loadLocal();
+  if (!local.length) return 0;
+  let ok = 0;
+  for (const rec of local) {
+    const payload = { ...rec };
+    delete payload.id; // 让 Supabase 生成 uuid，避免与云端冲突
+    try {
+      const { error } = await supabase.from(TABLE).insert(payload);
+      if (error) throw error;
+      ok++;
+    } catch (e) {
+      console.warn('[migrate] 单条失败', e.message);
+    }
+  }
+  saveLocal([]); // 迁移完成后清空本地兜底
+  return ok;
+}
+
 /* ============ 防摸鱼：3 分钟无操作关闭 ============ */
 function useAutoClose(onClose) {
   const [show, setShow] = useState(false);
@@ -642,6 +662,8 @@ function App() {
   const [showPwd, setShowPwd] = useState(false);
   const [pwd, setPwd] = useState('');
   const [pwdErr, setPwdErr] = useState('');
+  const [localOnly, setLocalOnly] = useState(0);
+  const [migrating, setMigrating] = useState(false);
 
   const logout = () => { localStorage.removeItem(STORE_KEY); setStore(''); };
   const { show: closing, cancel: cancelClose } = useAutoClose(logout);
@@ -659,8 +681,19 @@ function App() {
     setSyncStatus('connecting');
     const data = await loadRecords();
     setRecords(data);
+    // 本地兜底记录（id 不是 uuid 的）说明未进云端，需要提示迁移
+    setLocalOnly(data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || '')).length);
     setSyncStatus('connected');
   }, []);
+
+  const doMigrate = async () => {
+    setMigrating(true);
+    const n = await migrateLocalToCloud();
+    await refresh();
+    setMigrating(false);
+    if (n > 0) alert(`已同步 ${n} 条记录到云端，手机/其他设备现在也能看到了。`);
+    else alert('没有需要同步的本地记录。');
+  };
 
   useEffect(() => {
     if (!store) return;
@@ -702,6 +735,18 @@ function App() {
           </nav>
         </div>
       </header>
+
+      {localOnly > 0 && (
+        <div className="max-w-5xl mx-auto px-4 mt-4">
+          <div className="flex items-center gap-3 flex-wrap bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
+            <span className="text-sm text-amber-800">发现 {localOnly} 条记录只存在本机浏览器，未同步到云端，手机/其他设备看不到。</span>
+            <button onClick={doMigrate} disabled={migrating}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-400 text-white transition disabled:opacity-50">
+              {migrating ? '同步中…' : '同步到云端'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {view === 'submit'
         ? <SubmitView currentStore={store} onSubmitted={() => { refresh(); setView('dashboard'); }} />
