@@ -164,7 +164,7 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
 }
 
 function Badge({ text, cls }) {
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls || 'bg-gray-600/20 text-gray-300 border-gray-600/40'}`}>{text}</span>;
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls || 'bg-gray-100 text-gray-600 border-gray-300'}`}>{text}</span>;
 }
 
 /* ============ 登录 ============ */
@@ -388,14 +388,14 @@ function DashboardView({ records, currentStore, onReload }) {
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-base font-semibold text-gray-900">{store}</h3>
             <Badge text={`${grouped[store].length} 项`} />
-            {store === currentStore && <Badge text="本店可复盘" cls="bg-indigo-50 text-indigo-700 border-indigo-300" />}
+            {store === currentStore && <Badge text="本店可复盘" cls="bg-indigo-600 text-white border-indigo-600" />}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {grouped[store].map(it => (
               <div key={it.id} className="bg-white border border-gray-200 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <Badge text={it.category === 'product' ? '产品' : '服务'} />
-                  <Badge text={it.sub} cls="bg-gray-600/20 text-gray-300 border-gray-600/40" />
+                  <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                  <Badge text={it.sub} />
                   <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
