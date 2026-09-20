@@ -221,10 +221,9 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ============ 提交镜检 ============ */
-function emptyItem() { return { id: uid(), category: 'product', sub: PRODUCT_SUBS[0], desc: '', solution: '', due_date: '', status: 'pending', rework_note: '' }; }
+function emptyItem() { return { id: uid(), period: 'weekday', category: 'product', sub: PRODUCT_SUBS[0], desc: '', solution: '', due_date: '', status: 'pending', rework_note: '' }; }
 
 function SubmitView({ currentStore, onSubmitted }) {
-  const [period, setPeriod] = useState('weekday');
   const [target, setTarget] = useState(currentStore);
   const [items, setItems] = useState([emptyItem()]);
   const [saving, setSaving] = useState(false);
@@ -233,7 +232,7 @@ function SubmitView({ currentStore, onSubmitted }) {
   useEffect(() => { setTarget(currentStore); }, [currentStore]);
 
   const setItem = (i, patch) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, ...patch } : it));
-  const addItem = () => setItems(prev => prev.length < 3 ? [...prev, emptyItem()] : prev);
+  const addItem = () => setItems(prev => prev.length < 3 ? [...prev, { ...emptyItem(), period: prev[prev.length - 1]?.period || 'weekday' }] : prev);
   const delItem = (i) => setItems(prev => prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev);
 
   const onCat = (i, cat) => setItem(i, { category: cat, sub: SUBS_BY_CAT[cat][0] });
@@ -248,7 +247,7 @@ function SubmitView({ currentStore, onSubmitted }) {
       id: uid(),
       submitter_store: currentStore,
       target_store: target,
-      period,
+      period: filled[0].period, // 记录级 period 取首个问题时段，兼容旧数据
       week_label: isoWeek(new Date()),
       items: items.map(it => ({ ...it, desc: it.desc.trim(), solution: it.solution.trim(), rework_note: it.rework_note.trim() })),
       created_at: new Date().toISOString(),
@@ -270,35 +269,31 @@ function SubmitView({ currentStore, onSubmitted }) {
       <p className="text-sm text-gray-500 mb-5">看负责门店的监控回放，找出最该改的 1–3 件事。</p>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
-        <div className="flex flex-wrap gap-4 mb-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">检查时段</label>
-            <div className="flex gap-2">
-              {['weekday', 'weekend'].map(p => (
-                <button key={p} onClick={() => setPeriod(p)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${period === p ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>
-                  {PERIOD_LABELS[p]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs text-gray-500 mb-1">被检查门店（可跨店帮带）</label>
-            <select value={target} onChange={e => setTarget(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:border-indigo-500 outline-none">
-              {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
+        <div className="mb-4">
+          <label className="block text-xs text-gray-500 mb-1">被检查门店（可跨店帮带）</label>
+          <select value={target} onChange={e => setTarget(e.target.value)}
+            className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:border-indigo-500 outline-none">
+            {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
 
         <div className="space-y-3">
           {items.map((it, i) => (
             <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <span className="text-sm font-medium text-indigo-600">问题 {i + 1}</span>
-                {items.length > 1 && (
-                  <button onClick={() => delItem(i)} className="text-xs text-gray-500 hover:text-rose-400">删除</button>
-                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">检查时段</span>
+                  {['weekday', 'weekend'].map(p => (
+                    <button key={p} onClick={() => setItem(i, { period: p })}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition ${it.period === p ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>
+                      {PERIOD_LABELS[p]}
+                    </button>
+                  ))}
+                  {items.length > 1 && (
+                    <button onClick={() => delItem(i)} className="ml-1 text-xs text-gray-500 hover:text-rose-400">删除</button>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2 mb-3">
                 {['product', 'service'].map(c => (
@@ -348,7 +343,8 @@ function DashboardView({ records, currentStore, onReload }) {
 
   const filtered = allItems.filter(it => {
     if (storeFilter !== 'all' && it._record.target_store !== storeFilter) return false;
-    if (periodFilter !== 'all' && it._record.period !== periodFilter) return false;
+    const itemPeriod = it.period || it._record.period;
+    if (periodFilter !== 'all' && itemPeriod !== periodFilter) return false;
     if (statusFilter !== 'all' && it.status !== statusFilter) return false;
     return true;
   });
@@ -421,7 +417,7 @@ function DashboardView({ records, currentStore, onReload }) {
                   <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
-                <p className="text-xs text-gray-500 mb-1">提交人：{it._record.submitter_store} · {PERIOD_LABELS[it._record.period]} · {it._record.week_label}</p>
+                <p className="text-xs text-gray-500 mb-1">提交人：{it._record.submitter_store} · {PERIOD_LABELS[it.period || it._record.period]} · {it._record.week_label}</p>
                 {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
                 {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
                 {canEdit(it._record) && (
@@ -598,7 +594,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
                   <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
                   <Badge text={it.sub} />
                   <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it._record.period]} · 提交人 {it._record.submitter_store}</span>
+                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · 提交人 {it._record.submitter_store}</span>
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
                 {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
