@@ -680,9 +680,20 @@ function App() {
   const refresh = useCallback(async () => {
     setSyncStatus('connecting');
     const data = await loadRecords();
+    // 本机遗留记录（id 不是 uuid 的）：自动同步到云端，按钮仅作手动兜底
+    const localOnlyRecs = data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || ''));
+    if (localOnlyRecs.length > 0) {
+      const n = await migrateLocalToCloud();
+      if (n > 0) {
+        const data2 = await loadRecords(); // 重新拉云端，数据已统一
+        setRecords(data2);
+        setLocalOnly(0);
+        setSyncStatus('connected');
+        return;
+      }
+    }
     setRecords(data);
-    // 本地兜底记录（id 不是 uuid 的）说明未进云端，需要提示迁移
-    setLocalOnly(data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || '')).length);
+    setLocalOnly(localOnlyRecs.length);
     setSyncStatus('connected');
   }, []);
 
@@ -739,10 +750,10 @@ function App() {
       {localOnly > 0 && (
         <div className="max-w-5xl mx-auto px-4 mt-4">
           <div className="flex items-center gap-3 flex-wrap bg-amber-50 border border-amber-300 rounded-xl px-4 py-3">
-            <span className="text-sm text-amber-800">发现 {localOnly} 条记录只存在本机浏览器，未同步到云端，手机/其他设备看不到。</span>
+            <span className="text-sm text-amber-800">检测到 {localOnly} 条本机记录，正在自动同步到云端（同步后手机/其他设备可见）；若迟迟未同步可手动点击。</span>
             <button onClick={doMigrate} disabled={migrating}
               className="px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-500 hover:bg-amber-400 text-white transition disabled:opacity-50">
-              {migrating ? '同步中…' : '同步到云端'}
+              {migrating ? '同步中…' : '手动同步'}
             </button>
           </div>
         </div>
