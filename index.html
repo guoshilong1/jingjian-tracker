@@ -10,9 +10,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    body { background: #0b0f17; }
+    body { background: #eef2f7; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     .fade-in { animation: fade .25s ease; }
     @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   </style>
@@ -46,9 +46,9 @@ const SUBS_BY_CAT = { product: PRODUCT_SUBS, service: SERVICE_SUBS };
 const PERIOD_LABELS = { weekday: '周内', weekend: '周末' };
 const STATUS_LABELS = { pending: '待整改', done: '已完成', overdue: '已超期' };
 const STATUS_COLOR = {
-  pending: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  done: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  overdue: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+  pending: 'bg-amber-100 text-amber-700 border-amber-300',
+  done: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  overdue: 'bg-rose-100 text-rose-700 border-rose-300',
 };
 
 const SUPABASE_URL = 'https://ltjmbmgofjqeezoskqrc.supabase.co';
@@ -144,10 +144,10 @@ function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto fade-in`} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 sticky top-0 bg-gray-900 z-10">
-          <h3 className="text-base font-bold text-white">{title}</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+      <div className={`bg-white border border-gray-300 rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto fade-in`} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <h3 className="text-base font-bold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-900 text-xl leading-none">×</button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -164,17 +164,17 @@ function LoginScreen({ onLogin }) {
   const [store, setStore] = useState('');
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl fade-in">
+      <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-xl fade-in">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white text-xl">🔍</div>
-          <h1 className="text-xl font-bold text-white">镜检行动</h1>
+          <h1 className="text-xl font-bold text-gray-900">镜检行动</h1>
         </div>
         <p className="text-sm text-gray-500 mb-6">门店监控检查系统 · 选择你的门店进入</p>
-        <label className="block text-sm text-gray-400 mb-2">你的门店</label>
+        <label className="block text-sm text-gray-600 mb-2">你的门店</label>
         <select
           value={store}
           onChange={e => setStore(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white focus:border-indigo-500 outline-none mb-5"
+          className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-gray-900 focus:border-indigo-500 outline-none mb-5"
         >
           <option value="">— 请选择门店 —</option>
           {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
@@ -236,17 +236,17 @@ function SubmitView({ currentStore, onSubmitted }) {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 fade-in">
-      <h2 className="text-lg font-bold text-white mb-1">提交镜检</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-1">提交镜检</h2>
       <p className="text-sm text-gray-500 mb-5">看负责门店的监控回放，找出最该改的 1–3 件事。</p>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
         <div className="flex flex-wrap gap-4 mb-4">
           <div>
             <label className="block text-xs text-gray-500 mb-1">检查时段</label>
             <div className="flex gap-2">
               {['weekday', 'weekend'].map(p => (
                 <button key={p} onClick={() => setPeriod(p)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${period === p ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40' : 'text-gray-400 border-gray-700 hover:bg-gray-800'}`}>
+                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${period === p ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>
                   {PERIOD_LABELS[p]}
                 </button>
               ))}
@@ -255,7 +255,7 @@ function SubmitView({ currentStore, onSubmitted }) {
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-gray-500 mb-1">被检查门店（可跨店帮带）</label>
             <select value={target} onChange={e => setTarget(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:border-indigo-500 outline-none">
+              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:border-indigo-500 outline-none">
               {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
@@ -263,9 +263,9 @@ function SubmitView({ currentStore, onSubmitted }) {
 
         <div className="space-y-3">
           {items.map((it, i) => (
-            <div key={it.id} className="border border-gray-800 rounded-lg p-4 bg-gray-950/40">
+            <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-indigo-300">问题 {i + 1}</span>
+                <span className="text-sm font-medium text-indigo-600">问题 {i + 1}</span>
                 {items.length > 1 && (
                   <button onClick={() => delItem(i)} className="text-xs text-gray-500 hover:text-rose-400">删除</button>
                 )}
@@ -273,24 +273,24 @@ function SubmitView({ currentStore, onSubmitted }) {
               <div className="flex gap-2 mb-3">
                 {['product', 'service'].map(c => (
                   <button key={c} onClick={() => onCat(i, c)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${it.category === c ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40' : 'text-gray-400 border-gray-700 hover:bg-gray-800'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${it.category === c ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>
                     {c === 'product' ? '产品' : '服务'}
                   </button>
                 ))}
                 <select value={it.sub} onChange={e => setItem(i, { sub: e.target.value })}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white focus:border-indigo-500 outline-none">
+                  className="flex-1 bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 focus:border-indigo-500 outline-none">
                   {SUBS_BY_CAT[it.category].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <textarea value={it.desc} onChange={e => setItem(i, { desc: e.target.value })}
                 rows={3} placeholder="描述你看到的问题（建议找伙伴确认他能理解你写的话）"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500 outline-none resize-none" />
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 outline-none resize-none" />
             </div>
           ))}
         </div>
 
         {items.length < 3 && (
-          <button onClick={addItem} className="mt-3 w-full py-2 rounded-lg border border-dashed border-gray-700 text-sm text-gray-400 hover:border-indigo-500 hover:text-indigo-300 transition">+ 再加一个问题（最多 3 个）</button>
+          <button onClick={addItem} className="mt-3 w-full py-2 rounded-lg border border-dashed border-gray-300 text-sm text-gray-600 hover:border-indigo-500 hover:text-indigo-600 transition">+ 再加一个问题（最多 3 个）</button>
         )}
       </div>
 
@@ -348,23 +348,23 @@ function DashboardView({ records, currentStore, onReload }) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
-      <h2 className="text-lg font-bold text-white mb-1">管理看板 · 按门店汇总</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-1">管理看板 · 按门店汇总</h2>
       <p className="text-sm text-gray-500 mb-4">后台按被检查门店分类，可填解决方案与整改节点做复盘。</p>
 
       <div className="flex flex-wrap gap-3 mb-5">
         <select value={storeFilter} onChange={e => setStoreFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none">
+          className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 outline-none">
           <option value="all">全部门店</option>
           {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none">
+          className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 outline-none">
           <option value="all">全部时段</option>
           <option value="weekday">周内</option>
           <option value="weekend">周末</option>
         </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none">
+          className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 outline-none">
           <option value="all">全部状态</option>
           <option value="pending">待整改</option>
           <option value="done">已完成</option>
@@ -378,25 +378,25 @@ function DashboardView({ records, currentStore, onReload }) {
       {Object.keys(grouped).map(store => (
         <div key={store} className="mb-6">
           <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-base font-semibold text-white">{store}</h3>
+            <h3 className="text-base font-semibold text-gray-900">{store}</h3>
             <Badge text={`${grouped[store].length} 项`} />
-            {store === currentStore && <Badge text="本店可复盘" cls="bg-indigo-500/15 text-indigo-300 border-indigo-500/30" />}
+            {store === currentStore && <Badge text="本店可复盘" cls="bg-indigo-50 text-indigo-700 border-indigo-300" />}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {grouped[store].map(it => (
-              <div key={it.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div key={it.id} className="bg-white border border-gray-200 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Badge text={it.category === 'product' ? '产品' : '服务'} />
                   <Badge text={it.sub} cls="bg-gray-600/20 text-gray-300 border-gray-600/40" />
                   <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
                 </div>
-                <p className="text-sm text-gray-200 leading-relaxed mb-2">{it.desc}</p>
+                <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
                 <p className="text-xs text-gray-500 mb-1">提交人：{it._record.submitter_store} · {PERIOD_LABELS[it._record.period]} · {it._record.week_label}</p>
-                {it.solution && <p className="text-xs text-emerald-300 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
-                {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-300 mb-1">重盘：{it.rework_note}</p>}
+                {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+                {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
                 {canEdit(it._record) && (
                   <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note })}
-                    className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition">复盘 / 跟进</button>
+                    className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
                 )}
               </div>
             ))}
@@ -410,7 +410,7 @@ function DashboardView({ records, currentStore, onReload }) {
             <div>
               <label className="block text-xs text-gray-500 mb-1">整改状态</label>
               <select value={rework.status} onChange={e => setRework({ ...rework, status: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white outline-none">
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
                 <option value="pending">待整改</option>
                 <option value="done">已完成</option>
                 <option value="overdue">已超期（需重新复盘）</option>
@@ -420,22 +420,22 @@ function DashboardView({ records, currentStore, onReload }) {
               <label className="block text-xs text-gray-500 mb-1">解决方案</label>
               <textarea value={rework.solution} onChange={e => setRework({ ...rework, solution: e.target.value })} rows={3}
                 placeholder="针对这个问题怎么改"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 outline-none resize-none" />
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">整改时间节点</label>
               <input type="date" value={rework.due_date} onChange={e => setRework({ ...rework, due_date: e.target.value })}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none" />
+                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none" />
             </div>
             {rework.status === 'overdue' && (
               <div>
                 <label className="block text-xs text-gray-500 mb-1">重新复盘说明（为何未达成）</label>
                 <textarea value={rework.rework_note} onChange={e => setRework({ ...rework, rework_note: e.target.value })} rows={2}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 outline-none resize-none" />
+                  className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
               </div>
             )}
             <div className="flex gap-2 pt-1">
-              <button onClick={() => setRework(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition">取消</button>
+              <button onClick={() => setRework(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
               <button onClick={saveRework} className="flex-1 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition">保存</button>
             </div>
           </div>
@@ -479,12 +479,12 @@ function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 bg-gray-900/80 backdrop-blur-lg border-b border-gray-800">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200">
         <div className="flex items-center justify-between px-4 h-[60px] max-w-5xl mx-auto">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white">🔍</div>
             <div>
-              <h1 className="text-sm font-bold text-white leading-tight">{store}</h1>
+              <h1 className="text-sm font-bold text-gray-900 leading-tight">{store}</h1>
               <p className="text-xs text-gray-500 leading-tight">
                 镜检行动
                 <span className="ml-1">{syncStatus === 'connected' ? '· 已同步' : '· 连接中'}</span>
@@ -493,10 +493,10 @@ function App() {
           </div>
           <nav className="flex items-center gap-1">
             <button onClick={() => setView('submit')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>提交镜检</button>
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>提交镜检</button>
             <button onClick={() => setView('dashboard')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>管理看板</button>
-            <button onClick={logout} className="ml-1 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition">退出</button>
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
+            <button onClick={logout} className="ml-1 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
           </nav>
         </div>
       </header>
@@ -507,9 +507,9 @@ function App() {
 
       {closing && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 text-center max-w-sm fade-in">
-            <h3 className="text-lg font-bold text-white mb-2">页面即将自动关闭</h3>
-            <p className="text-sm text-gray-400 mb-4">已连续 3 分钟没有操作，10 秒后关闭</p>
+          <div className="bg-white border border-gray-300 rounded-2xl p-8 text-center max-w-sm fade-in">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">页面即将自动关闭</h3>
+            <p className="text-sm text-gray-600 mb-4">已连续 3 分钟没有操作，10 秒后关闭</p>
             <p className="text-xs text-gray-600">动一下鼠标或按任意键即可继续使用</p>
           </div>
         </div>
