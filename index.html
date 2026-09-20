@@ -54,6 +54,8 @@ const STATUS_COLOR = {
 const SUPABASE_URL = 'https://ltjmbmgofjqeezoskqrc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_KrCOzlUPTcrb8S4-ajTjww_EhKibtaC';
 const TABLE = 'mirror_checks';
+const DASH_PWD = '415';
+const SUB_LABELS = [...PRODUCT_SUBS, ...SERVICE_SUBS];
 const STORE_KEY = 'mirror_store';
 const LOCAL_KEY = 'mirror_records';
 
@@ -453,15 +455,152 @@ function DashboardView({ records, currentStore, onReload }) {
   );
 }
 
+/* ============ 门店看板（当前门店视角） ============ */
+function StoreDashboardView({ records, currentStore }) {
+  const [filter, setFilter] = useState('all');
+
+  const items = useMemo(() => {
+    const out = [];
+    records.filter(r => r.target_store === currentStore).forEach(r => (r.items || []).forEach(it => out.push({ ...it, _record: r })));
+    return out.sort((a, b) => new Date(b._record.created_at) - new Date(a._record.created_at));
+  }, [records, currentStore]);
+
+  const total = items.length;
+  const pending = items.filter(i => i.status === 'pending').length;
+  const done = items.filter(i => i.status === 'done').length;
+  const overdue = items.filter(i => i.status === 'overdue').length;
+
+  const productCnt = items.filter(i => i.category === 'product').length;
+  const serviceCnt = items.filter(i => i.category === 'service').length;
+  const productPct = total ? Math.round(productCnt / total * 100) : 0;
+  const servicePct = total ? 100 - productPct : 0;
+  const completeRate = total ? Math.round(done / total * 100) : 0;
+
+  const subMap = {};
+  items.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
+  const subArr = Object.entries(subMap).sort((a, b) => b[1] - a[1]);
+
+  const filtered = filter === 'all' ? items : items.filter(i => i.status === filter);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
+      <h2 className="text-lg font-bold text-gray-900 mb-1">门店看板 · {currentStore}</h2>
+      <p className="text-sm text-gray-500 mb-4">本门店被检查的历史记录、整改进度与类别分析。</p>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">总问题</p>
+          <p className="text-2xl font-bold text-gray-900">{total}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">待整改</p>
+          <p className="text-2xl font-bold text-amber-600">{pending}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">已完成</p>
+          <p className="text-2xl font-bold text-emerald-600">{done}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">已超期</p>
+          <p className="text-2xl font-bold text-rose-600">{overdue}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">类别占比</h3>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 rounded-full flex-shrink-0" style={{ background: `conic-gradient(#6366f1 0% ${productPct}%, #f59e0b ${productPct}% 100%)` }}></div>
+            <div className="text-sm space-y-1.5">
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-indigo-500"></span>产品 {productCnt}（{productPct}%）</div>
+              <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-amber-500"></span>服务 {serviceCnt}（{servicePct}%）</div>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">整改完成率</h3>
+          <p className="text-3xl font-bold text-emerald-600">{completeRate}%</p>
+          <p className="text-xs text-gray-500 mt-1">{done} 已完成 / {total} 总问题</p>
+          <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-full bg-emerald-500" style={{ width: completeRate + '%' }}></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">子分类问题数</h3>
+        {subArr.length === 0 ? <p className="text-sm text-gray-500">暂无数据</p> : (
+          <div className="space-y-2">
+            {subArr.map(([sub, cnt]) => {
+              const max = subArr[0][1] || 1;
+              return (
+                <div key={sub} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-600 w-24 flex-shrink-0">{sub}</span>
+                  <div className="flex-1 h-3 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full bg-indigo-500" style={{ width: Math.round(cnt / max * 100) + '%' }}></div>
+                  </div>
+                  <span className="text-xs text-gray-600 w-6 text-right">{cnt}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">历史记录 & 整改记录</h3>
+          <div className="flex gap-2">
+            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+              <button key={f.k} onClick={() => setFilter(f.k)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${filter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
+            ))}
+          </div>
+        </div>
+        {filtered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
+          <div className="space-y-3">
+            {filtered.map(it => (
+              <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                  <Badge text={it.sub} />
+                  <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it._record.period]} · 提交人 {it._record.submitter_store}</span>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+                {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+                {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============ 主应用 ============ */
 function App() {
   const [store, setStore] = useState(() => localStorage.getItem(STORE_KEY) || '');
   const [view, setView] = useState('submit');
   const [records, setRecords] = useState([]);
   const [syncStatus, setSyncStatus] = useState('connecting');
+  const [dashAuth, setDashAuth] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
+  const [pwd, setPwd] = useState('');
+  const [pwdErr, setPwdErr] = useState('');
 
   const logout = () => { localStorage.removeItem(STORE_KEY); setStore(''); };
   const { show: closing, cancel: cancelClose } = useAutoClose(logout);
+
+  const openDashboard = () => {
+    if (dashAuth) { setView('dashboard'); return; }
+    setPwd(''); setPwdErr(''); setShowPwd(true);
+  };
+  const submitPwd = () => {
+    if (pwd === DASH_PWD) { setDashAuth(true); setShowPwd(false); setView('dashboard'); }
+    else { setPwdErr('密码错误'); }
+  };
 
   const refresh = useCallback(async () => {
     setSyncStatus('connecting');
@@ -502,7 +641,9 @@ function App() {
           <nav className="flex items-center gap-1">
             <button onClick={() => setView('submit')}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>提交镜检</button>
-            <button onClick={() => setView('dashboard')}
+            <button onClick={() => setView('store')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'store' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>门店看板</button>
+            <button onClick={openDashboard}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
             <button onClick={logout} className="ml-1 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
           </nav>
@@ -511,7 +652,21 @@ function App() {
 
       {view === 'submit'
         ? <SubmitView currentStore={store} onSubmitted={() => { refresh(); setView('dashboard'); }} />
+        : view === 'store'
+        ? <StoreDashboardView records={records} currentStore={store} />
         : <DashboardView records={records} currentStore={store} onReload={refresh} />}
+
+      <Modal open={showPwd} onClose={() => setShowPwd(false)} title="管理看板密码">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500">请输入管理看板密码（415）以查看全部门店数据。</p>
+          <input type="password" value={pwd} onChange={e => setPwd(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitPwd()}
+            placeholder="请输入密码"
+            className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-indigo-500" />
+          {pwdErr && <p className="text-rose-400 text-sm">{pwdErr}</p>}
+          <button onClick={submitPwd}
+            className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition">进入</button>
+        </div>
+      </Modal>
 
       {closing && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm">
