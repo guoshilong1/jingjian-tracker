@@ -80,18 +80,26 @@ function loadLocal() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) |
 function saveLocal(arr) { localStorage.setItem(LOCAL_KEY, JSON.stringify(arr)); }
 
 async function loadRecords() {
+  const local = loadLocal();
   try {
     const { data, error } = await supabase.from(TABLE).select('*').order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    const cloud = data || [];
+    // 合并本地兜底（离线时写入的）与云端记录，避免提交后“消失”
+    const cloudIds = new Set(cloud.map(r => r.id));
+    const merged = [...cloud, ...local.filter(r => !cloudIds.has(r.id))];
+    return merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   } catch (e) {
     console.warn('[load] 云端失败，用本地兜底', e.message);
-    return loadLocal();
+    return local;
   }
 }
 async function insertRecord(rec) {
+  // Supabase 表 id 是 uuid，不能传自定义字符串；让数据库自生成
+  const payload = { ...rec };
+  delete payload.id;
   try {
-    const { data, error } = await supabase.from(TABLE).insert(rec).select();
+    const { data, error } = await supabase.from(TABLE).insert(payload).select();
     if (error) throw error;
     return data && data[0] ? data[0] : rec;
   } catch (e) {
