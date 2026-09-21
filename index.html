@@ -571,6 +571,7 @@ function DashboardView({ records, currentStore, onReload }) {
 function StoreDashboardView({ records, currentStore, onReload }) {
   const [ownFilter, setOwnFilter] = useState('all');
   const [otherFilter, setOtherFilter] = useState('all');
+  const [mobileTab, setMobileTab] = useState('own');
   const [rework, setRework] = useState(null);
 
   const ownItems = useMemo(() => {
@@ -737,7 +738,33 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* 移动端：下拉切换 + 单列表 */}
+      <div className="md:hidden mb-4">
+        <label className="block text-xs text-gray-500 mb-1">查看范围</label>
+        <select value={mobileTab} onChange={e => setMobileTab(e.target.value)}
+          className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-900 outline-none">
+          <option value="own">本门店问题（{ownFiltered.length}）</option>
+          <option value="other">其他门店问题（{otherFiltered.length}）</option>
+        </select>
+      </div>
+
+      <div className="md:hidden bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">{mobileTab === 'own' ? '本门店问题' : '其他门店问题'}</h3>
+          <div className="flex gap-2">
+            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+              <button key={f.k} onClick={() => mobileTab === 'own' ? setOwnFilter(f.k) : setOtherFilter(f.k)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${(mobileTab === 'own' ? ownFilter : otherFilter) === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
+            ))}
+          </div>
+        </div>
+        {(mobileTab === 'own' ? ownFiltered : otherFiltered).length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
+          <div className="space-y-3">{(mobileTab === 'own' ? ownFiltered : otherFiltered).map(g => renderRecordCard(g, mobileTab))}</div>
+        )}
+      </div>
+
+      {/* PC 端：左右双列 */}
+      <div className="hidden md:grid gap-4 md:grid-cols-2">
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-900">本门店问题</h3>
