@@ -69,7 +69,8 @@ const STORE_KEY = 'mirror_store';
 const LOCAL_KEY = 'mirror_records';
 
 /* ============ Supabase 客户端 ============ */
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// 禁用 persistSession：避免 Edge "Tracking Prevention" 拦截 localStorage 时 supabase-js 异常；匿名 key 本就不需要会话持久化
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
 /* ============ 工具函数 ============ */
 function isoWeek(date) {
@@ -94,11 +95,27 @@ function formatDateTime(iso) {
 }
 
 /* ============ 数据层（Supabase 优先，localStorage 兜底） ============ */
-function loadLocal() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'); } catch (e) { return []; } }
-function saveLocal(arr) { localStorage.setItem(LOCAL_KEY, JSON.stringify(arr)); }
+function loadLocal() {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
+  } catch (e) {
+    console.warn('[loadLocal] localStorage 不可用', e.message);
+    return [];
+  }
+}
+function saveLocal(arr) {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[saveLocal] localStorage 写入失败', e.message);
+  }
+}
 
 async function loadRecords() {
-  const local = loadLocal();
+  let local = [];
+  try { local = loadLocal(); } catch (e) {}
   try {
     const { data, error } = await supabase.from(TABLE).select('*').order('created_at', { ascending: false });
     if (error) throw error;
@@ -106,10 +123,10 @@ async function loadRecords() {
     // 合并本地兜底（离线时写入的）与云端记录，避免提交后“消失”
     const cloudIds = new Set(cloud.map(r => r.id));
     const merged = [...cloud, ...local.filter(r => !cloudIds.has(r.id))];
-    return merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { data: merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), source: 'cloud' };
   } catch (e) {
     console.warn('[load] 云端失败，用本地兜底', e.message);
-    return local;
+    return { data: local, source: 'local' };
   }
 }
 async function insertRecord(rec) {
@@ -238,7 +255,7 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ============ 提交镜检 ============ */
-function emptyItem() { return { id: uid(), period: 'weekday', category: 'product', sub: PRODUCT_SUBS[0], desc: '', images: [], solution: '', due_date: '', status: 'pending', rework_note: '', tracker_store: '', track_result: '', track_note: '', track_at: '' }; }
+function emptyItem() { return { id: uid(), period: 'weekday', category: 'product', sub: PRODUCT_SUBS[0], desc: '', images: [], solution: '', due_date: '', status: 'pending', rework_note: '', tracker_store: '', track_result: '', track_note: '', track_at: '', track_images: [] }; }
 
 function compressImage(file, maxDim = 800, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -529,7 +546,12 @@ function DashboardView({ records, currentStore, onReload }) {
                 <p className="text-xs text-gray-500 mb-1">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人：{it._record.submitter_store}</p>
                 {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
                 {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
-                {it.track_result && <p className="text-xs text-emerald-600 mb-1">追踪（{it.tracker_store || it._record.submitter_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>}
+                {it.track_result && (
+                  <div className="mb-1">
+                    <p className="text-xs text-emerald-600">追踪（{it.tracker_store || it._record.submitter_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>
+                    <ImageGallery images={it.track_images} className="mt-1" />
+                  </div>
+                )}
                 {canEdit(it._record) && (
                   <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
                     className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
@@ -664,6 +686,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         status: 'pending', solution: '', due_date: '', rework_note: '',
         tracker_store: rest.tracker_store || track.record.submitter_store,
         track_at: new Date().toISOString(),
+        track_images: rest.track_images || [],
         ...rest, status,
       };
     });
@@ -696,7 +719,12 @@ function StoreDashboardView({ records, currentStore, onReload }) {
               <ImageGallery images={it.images} className="mb-1" />
               {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
               {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
-              {it.track_result && <p className="text-xs text-emerald-600">追踪（{it.tracker_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>}
+              {it.track_result && (
+                <div className="mb-1">
+                  <p className="text-xs text-emerald-600">追踪（{it.tracker_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>
+                  <ImageGallery images={it.track_images} className="mt-1" />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -938,6 +966,39 @@ function StoreDashboardView({ records, currentStore, onReload }) {
                     placeholder="记录改善情况"
                     className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
                 </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-500">追踪现场照片（选填，最多 3 张）</span>
+                    <span className="text-xs text-gray-400">{(it.track_images || []).length}/3</span>
+                  </div>
+                  {(it.track_images || []).length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {(it.track_images || []).map((src, idx) => (
+                        <div key={idx} className="relative w-16 h-16 rounded-lg border border-gray-200 overflow-hidden bg-gray-100">
+                          <img src={src} alt={`追踪图片 ${idx + 1}`} className="w-full h-full object-cover" />
+                          <button onClick={() => setTrack(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, track_images: (x.track_images || []).filter((_, j) => j !== idx) } : x) }))}
+                            className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/50 text-white text-xs flex items-center justify-center hover:bg-black/70">×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(it.track_images || []).length < 3 && (
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-xs text-gray-600 hover:border-emerald-500 hover:text-emerald-600 cursor-pointer transition">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M12 3v13.5m0 0 4.5-4.5m-4.5 4.5L7.5 12" /></svg>
+                      上传追踪照片
+                      <input type="file" accept="image/*" multiple className="hidden"
+                        onChange={async e => {
+                          const files = Array.from(e.target.files || []);
+                          const remaining = 3 - (it.track_images || []).length;
+                          const toAdd = files.slice(0, remaining);
+                          const compressed = await Promise.all(toAdd.map(f => compressImage(f).catch(() => null)));
+                          const added = compressed.filter(Boolean);
+                          setTrack(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, track_images: [...(x.track_images || []), ...added] } : x) }));
+                          e.target.value = '';
+                        }} />
+                    </label>
+                  )}
+                </div>
               </div>
             ))}
             <div className="flex gap-2 pt-1">
@@ -978,14 +1039,14 @@ function App() {
 
   const refresh = useCallback(async () => {
     setSyncStatus('connecting');
-    const data = await loadRecords();
-    // 本机遗留记录（id 不是 uuid 的）：自动同步到云端，按钮仅作手动兜底
+    const { data, source } = await loadRecords();
+    // 本机遗留记录（id 不是 uuid 的）：仅在云端连上时自动同步到云端，按钮仅作手动兜底
     const localOnlyRecs = data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || ''));
-    if (localOnlyRecs.length > 0) {
+    if (source === 'cloud' && localOnlyRecs.length > 0) {
       const n = await migrateLocalToCloud();
       if (n > 0) {
         const data2 = await loadRecords(); // 重新拉云端，数据已统一
-        setRecords(data2);
+        setRecords(data2.data);
         setLocalOnly(0);
         setSyncStatus('connected');
         return;
@@ -993,7 +1054,7 @@ function App() {
     }
     setRecords(data);
     setLocalOnly(localOnlyRecs.length);
-    setSyncStatus('connected');
+    setSyncStatus(source === 'cloud' ? 'connected' : 'offline');
   }, []);
 
   const doMigrate = async () => {
@@ -1030,7 +1091,9 @@ function App() {
               <h1 className="text-sm font-bold text-gray-900 leading-tight">{store}</h1>
               <p className="text-xs text-gray-500 leading-tight">
                 镜检行动
-                <span className="ml-1">{syncStatus === 'connected' ? '· 已同步' : '· 连接中'}</span>
+                <span className={`ml-1 ${syncStatus === 'offline' ? 'text-amber-600' : ''}`}>
+                  {syncStatus === 'connected' ? '· 已同步' : syncStatus === 'offline' ? '· 离线模式（数据仅本地）' : '· 连接中'}
+                </span>
               </p>
             </div>
           </div>
