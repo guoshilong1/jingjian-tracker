@@ -44,11 +44,20 @@ const SERVICE_SUBS = ['接待', '点单', '上菜', '餐中服务', '餐后收�
 const SUBS_BY_CAT = { product: PRODUCT_SUBS, service: SERVICE_SUBS };
 
 const PERIOD_LABELS = { weekday: '周内', weekend: '周末' };
-const STATUS_LABELS = { pending: '待整改', done: '已完成', overdue: '已超期' };
+const STATUS_LABELS = { pending: '待整改', done: '已整改待验收', verified: '已验收闭环', partial: '部分改善', overdue: '已超期' };
 const STATUS_COLOR = {
   pending: 'bg-amber-100 text-amber-700 border-amber-300',
-  done: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  done: 'bg-sky-100 text-sky-700 border-sky-300',
+  verified: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  partial: 'bg-orange-100 text-orange-700 border-orange-300',
   overdue: 'bg-rose-100 text-rose-700 border-rose-300',
+};
+// 追踪验收结果：improved→已验收闭环 / partial→部分改善 / not_improved→退回待整改
+const TRACK_LABELS = { improved: '已改善', partial: '部分改善', not_improved: '未改善（退回）' };
+const TRACK_COLOR = {
+  improved: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  partial: 'bg-orange-100 text-orange-700 border-orange-300',
+  not_improved: 'bg-rose-100 text-rose-700 border-rose-300',
 };
 
 const SUPABASE_URL = 'https://ltjmbmgofjqeezoskqrc.supabase.co';
@@ -229,7 +238,7 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ============ 提交镜检 ============ */
-function emptyItem() { return { id: uid(), period: 'weekday', category: 'product', sub: PRODUCT_SUBS[0], desc: '', images: [], solution: '', due_date: '', status: 'pending', rework_note: '' }; }
+function emptyItem() { return { id: uid(), period: 'weekday', category: 'product', sub: PRODUCT_SUBS[0], desc: '', images: [], solution: '', due_date: '', status: 'pending', rework_note: '', tracker_store: '', track_result: '', track_note: '', track_at: '' }; }
 
 function compressImage(file, maxDim = 800, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -305,7 +314,7 @@ function SubmitView({ currentStore, onSubmitted }) {
       target_store: target,
       period: filled[0].period, // 记录级 period 取首个问题时段，兼容旧数据
       week_label: isoWeek(new Date()),
-      items: items.map(it => ({ ...it, desc: it.desc.trim(), solution: it.solution.trim(), rework_note: it.rework_note.trim() })),
+      items: items.map(it => ({ ...it, desc: it.desc.trim(), solution: it.solution.trim(), rework_note: it.rework_note.trim(), tracker_store: currentStore })),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -467,6 +476,14 @@ function DashboardView({ records, currentStore, onReload }) {
       <h2 className="text-lg font-bold text-gray-900 mb-1">管理看板 · 按门店汇总</h2>
       <p className="text-sm text-gray-500 mb-4">后台按被检查门店分类，可填解决方案与整改节点做复盘。</p>
 
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">总问题</p><p className="text-2xl font-bold text-gray-900">{allItems.length}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">待整改</p><p className="text-2xl font-bold text-amber-600">{allItems.filter(i => i.status === 'pending').length}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">待验收</p><p className="text-2xl font-bold text-sky-600">{allItems.filter(i => i.status === 'done').length}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">已验收</p><p className="text-2xl font-bold text-emerald-600">{allItems.filter(i => i.status === 'verified').length}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">已超期</p><p className="text-2xl font-bold text-rose-600">{allItems.filter(i => i.status === 'overdue').length}</p></div>
+      </div>
+
       <div className="flex flex-wrap gap-3 mb-5">
         <select value={storeFilter} onChange={e => setStoreFilter(e.target.value)}
           className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 outline-none">
@@ -483,7 +500,8 @@ function DashboardView({ records, currentStore, onReload }) {
           className="bg-gray-50 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 outline-none">
           <option value="all">全部状态</option>
           <option value="pending">待整改</option>
-          <option value="done">已完成</option>
+          <option value="done">待验收</option>
+          <option value="verified">已验收</option>
           <option value="overdue">已超期</option>
         </select>
         <span className="text-sm text-gray-500 self-center">共 {filtered.length} 个问题</span>
@@ -500,7 +518,7 @@ function DashboardView({ records, currentStore, onReload }) {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {grouped[store].map(it => (
-              <div key={it.id} className={`bg-white border border-gray-200 rounded-xl p-4 ${it.status === 'done' ? 'border-l-4 border-l-emerald-400' : ''}`}>
+              <div key={it.id} className={`bg-white border border-gray-200 rounded-xl p-4 ${it.status === 'verified' ? 'border-l-4 border-l-emerald-400' : it.status === 'done' ? 'border-l-4 border-l-sky-400' : (it.status === 'partial' || it.status === 'overdue') ? 'border-l-4 border-l-rose-400' : ''}`}>
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
                   <Badge text={it.sub} />
@@ -511,6 +529,7 @@ function DashboardView({ records, currentStore, onReload }) {
                 <p className="text-xs text-gray-500 mb-1">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人：{it._record.submitter_store}</p>
                 {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
                 {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
+                {it.track_result && <p className="text-xs text-emerald-600 mb-1">追踪（{it.tracker_store || it._record.submitter_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>}
                 {canEdit(it._record) && (
                   <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
                     className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
@@ -535,7 +554,7 @@ function DashboardView({ records, currentStore, onReload }) {
               <select value={rework.status} onChange={e => setRework({ ...rework, status: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
                 <option value="pending">待整改</option>
-                <option value="done">已完成</option>
+                <option value="done">已整改（待验收）</option>
                 <option value="overdue">已超期（需重新复盘）</option>
               </select>
             </div>
@@ -574,7 +593,9 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   const [otherFilter, setOtherFilter] = useState('all');
   const [mobileTab, setMobileTab] = useState('own');
   const [rework, setRework] = useState(null);
+  const [track, setTrack] = useState(null);
   const canEdit = (rec) => rec.target_store === currentStore;
+  const isTracker = (rec) => rec.submitter_store === currentStore;
 
   const ownItems = useMemo(() => {
     const out = [];
@@ -591,13 +612,14 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   const total = ownItems.length;
   const pending = ownItems.filter(i => i.status === 'pending').length;
   const done = ownItems.filter(i => i.status === 'done').length;
+  const verified = ownItems.filter(i => i.status === 'verified').length;
   const overdue = ownItems.filter(i => i.status === 'overdue').length;
 
   const productCnt = ownItems.filter(i => i.category === 'product').length;
   const serviceCnt = ownItems.filter(i => i.category === 'service').length;
   const productPct = total ? Math.round(productCnt / total * 100) : 0;
   const servicePct = total ? 100 - productPct : 0;
-  const completeRate = total ? Math.round(done / total * 100) : 0;
+  const completeRate = total ? Math.round(verified / total * 100) : 0;
 
   const subMap = {};
   ownItems.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
@@ -630,10 +652,34 @@ function StoreDashboardView({ records, currentStore, onReload }) {
     onReload();
   };
 
+  const saveTrack = async () => {
+    if (!track) return;
+    const finalItems = track.items.map(it => {
+      const { _record, ...rest } = it;
+      let status = rest.status;
+      if (rest.track_result === 'improved') status = 'verified';
+      else if (rest.track_result === 'partial') status = 'partial';
+      else if (rest.track_result === 'not_improved') status = 'pending';
+      return {
+        status: 'pending', solution: '', due_date: '', rework_note: '',
+        tracker_store: rest.tracker_store || track.record.submitter_store,
+        track_at: new Date().toISOString(),
+        ...rest, status,
+      };
+    });
+    await updateRecord(track.recordId, finalItems);
+    setTrack(null);
+    onReload();
+  };
+
   const renderRecordCard = (group, mode = 'own') => {
     const rec = group.record;
+    const allVerified = group.items.every(i => i.status === 'verified');
+    const anyReturn = group.items.some(i => i.status === 'partial' || i.status === 'overdue');
+    const anyWait = group.items.some(i => i.status === 'done');
+    const borderCls = allVerified ? 'border-l-4 border-l-emerald-400' : (anyReturn ? 'border-l-4 border-l-rose-400' : (anyWait ? 'border-l-4 border-l-sky-400' : ''));
     return (
-      <div key={rec.id} className={`border border-gray-200 rounded-lg p-4 bg-gray-50 ${group.items.every(i => i.status === 'done') ? 'border-l-4 border-l-emerald-400' : ''}`}>
+      <div key={rec.id} className={`border border-gray-200 rounded-lg p-4 bg-gray-50 ${borderCls}`}>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="text-xs text-gray-400">{rec.week_label} · {formatDateTime(rec.created_at)} · {mode === 'own' ? '提交人' : '问题门店'} {mode === 'own' ? rec.submitter_store : rec.target_store}</span>
         </div>
@@ -650,20 +696,36 @@ function StoreDashboardView({ records, currentStore, onReload }) {
               <ImageGallery images={it.images} className="mb-1" />
               {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
               {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
+              {it.track_result && <p className="text-xs text-emerald-600">追踪（{it.tracker_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>}
             </div>
           ))}
         </div>
-        {canEdit(rec) && (
-          <button onClick={() => {
-            setRework({
-              recordId: rec.id,
-              record: rec,
-              items: (group.items || []).map(it => {
-                const { _record, ...itRest } = it;
-                return { status: 'pending', solution: '', due_date: '', rework_note: '', ...itRest };
-              })
-            });
-          }} className="mt-3 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+        {mode === 'own' ? (
+          canEdit(rec) && (
+            <button onClick={() => {
+              setRework({
+                recordId: rec.id,
+                record: rec,
+                items: (group.items || []).map(it => {
+                  const { _record, ...itRest } = it;
+                  return { status: 'pending', solution: '', due_date: '', rework_note: '', ...itRest };
+                })
+              });
+            }} className="mt-3 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+          )
+        ) : (
+          isTracker(rec) && (
+            <button onClick={() => {
+              setTrack({
+                recordId: rec.id,
+                record: rec,
+                items: (group.items || []).map(it => {
+                  const { _record, ...itRest } = it;
+                  return { track_result: '', track_note: '', status: 'pending', solution: '', due_date: '', rework_note: '', ...itRest };
+                })
+              });
+            }} className="mt-3 text-xs px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 transition">追踪验收</button>
+          )
         )}
       </div>
     );
@@ -674,7 +736,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
       <h2 className="text-lg font-bold text-gray-900 mb-1">门店看板 · {currentStore}</h2>
       <p className="text-sm text-gray-500 mb-4">本门店被检查的历史记录、整改进度与类别分析。</p>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-500 mb-1">总问题</p>
           <p className="text-2xl font-bold text-gray-900">{total}</p>
@@ -684,8 +746,12 @@ function StoreDashboardView({ records, currentStore, onReload }) {
           <p className="text-2xl font-bold text-amber-600">{pending}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs text-gray-500 mb-1">已完成</p>
-          <p className="text-2xl font-bold text-emerald-600">{done}</p>
+          <p className="text-xs text-gray-500 mb-1">待验收</p>
+          <p className="text-2xl font-bold text-sky-600">{done}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">已验收</p>
+          <p className="text-2xl font-bold text-emerald-600">{verified}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-500 mb-1">已超期</p>
@@ -707,7 +773,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">整改完成率</h3>
           <p className="text-3xl font-bold text-emerald-600">{completeRate}%</p>
-          <p className="text-xs text-gray-500 mt-1">{done} 已完成 / {total} 总问题</p>
+          <p className="text-xs text-gray-500 mt-1">{verified} 已验收闭环 / {total} 总问题</p>
           <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
             <div className="h-full bg-emerald-500" style={{ width: completeRate + '%' }}></div>
           </div>
@@ -748,7 +814,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-gray-900">{mobileTab === 'own' ? '本门店问题' : '其他门店问题'}</h3>
           <div className="flex gap-2">
-            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
+            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '待验收' }, { k: 'verified', t: '已验收' }, { k: 'overdue', t: '已超期' }].map(f => (
               <button key={f.k} onClick={() => mobileTab === 'own' ? setOwnFilter(f.k) : setOtherFilter(f.k)}
                 className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${(mobileTab === 'own' ? ownFilter : otherFilter) === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
             ))}
@@ -765,7 +831,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-900">本门店问题</h3>
             <div className="flex gap-2">
-              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '待验收' }, { k: 'verified', t: '已验收' }, { k: 'overdue', t: '已超期' }].map(f => (
                 <button key={f.k} onClick={() => setOwnFilter(f.k)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${ownFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
               ))}
@@ -780,7 +846,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-900">其他门店问题</h3>
             <div className="flex gap-2">
-              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '待验收' }, { k: 'verified', t: '已验收' }, { k: 'overdue', t: '已超期' }].map(f => (
                 <button key={f.k} onClick={() => setOtherFilter(f.k)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${otherFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
               ))}
@@ -810,7 +876,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
                   <select value={it.status || 'pending'} onChange={e => setRework(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, status: e.target.value } : x) }))}
                     className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
                     <option value="pending">待整改</option>
-                    <option value="done">已完成</option>
+                    <option value="done">已整改（待验收）</option>
                     <option value="overdue">已超期（需重新复盘）</option>
                   </select>
                 </div>
@@ -837,6 +903,46 @@ function StoreDashboardView({ records, currentStore, onReload }) {
             <div className="flex gap-2 pt-1">
               <button onClick={() => setRework(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
               <button onClick={saveRework} className="flex-1 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition">保存</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!track} onClose={() => setTrack(null)} title="追踪验收">
+        {track && (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">你是该记录的提交门店（追踪人 {track.record.submitter_store}），请确认被检查门店 {track.record.target_store} 的整改是否到位。</p>
+            {track.items.map((it) => (
+              <div key={it.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                  <Badge text={it.sub} />
+                  <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+                <ImageGallery images={it.images} className="mb-1" />
+                {it.solution && <p className="text-xs text-emerald-600">其方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">追踪结果</label>
+                  <select value={it.track_result || ''} onChange={e => setTrack(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, track_result: e.target.value } : x) }))}
+                    className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
+                    <option value="">待判定</option>
+                    <option value="improved">已改善（验收闭环）</option>
+                    <option value="partial">部分改善（需继续跟）</option>
+                    <option value="not_improved">未改善（退回重改）</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">追踪备注（现场看到什么 / 是否反弹）</label>
+                  <textarea value={it.track_note || ''} onChange={e => setTrack(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, track_note: e.target.value } : x) }))} rows={2}
+                    placeholder="记录改善情况"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
+                </div>
+              </div>
+            ))}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setTrack(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
+              <button onClick={saveTrack} className="flex-1 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition">保存验收</button>
             </div>
           </div>
         )}
