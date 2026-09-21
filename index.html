@@ -569,31 +569,39 @@ function DashboardView({ records, currentStore, onReload }) {
 
 /* ============ 门店看板（当前门店视角） ============ */
 function StoreDashboardView({ records, currentStore, onReload }) {
-  const [filter, setFilter] = useState('all');
+  const [ownFilter, setOwnFilter] = useState('all');
+  const [otherFilter, setOtherFilter] = useState('all');
   const [rework, setRework] = useState(null);
 
-  const items = useMemo(() => {
+  const ownItems = useMemo(() => {
     const out = [];
     records.filter(r => r.target_store === currentStore).forEach(r => (r.items || []).forEach(it => out.push({ ...it, _record: r })));
     return out.sort((a, b) => new Date(b._record.created_at) - new Date(a._record.created_at));
   }, [records, currentStore]);
 
-  const total = items.length;
-  const pending = items.filter(i => i.status === 'pending').length;
-  const done = items.filter(i => i.status === 'done').length;
-  const overdue = items.filter(i => i.status === 'overdue').length;
+  const otherItems = useMemo(() => {
+    const out = [];
+    records.filter(r => r.submitter_store === currentStore && r.target_store !== currentStore).forEach(r => (r.items || []).forEach(it => out.push({ ...it, _record: r })));
+    return out.sort((a, b) => new Date(b._record.created_at) - new Date(a._record.created_at));
+  }, [records, currentStore]);
 
-  const productCnt = items.filter(i => i.category === 'product').length;
-  const serviceCnt = items.filter(i => i.category === 'service').length;
+  const total = ownItems.length;
+  const pending = ownItems.filter(i => i.status === 'pending').length;
+  const done = ownItems.filter(i => i.status === 'done').length;
+  const overdue = ownItems.filter(i => i.status === 'overdue').length;
+
+  const productCnt = ownItems.filter(i => i.category === 'product').length;
+  const serviceCnt = ownItems.filter(i => i.category === 'service').length;
   const productPct = total ? Math.round(productCnt / total * 100) : 0;
   const servicePct = total ? 100 - productPct : 0;
   const completeRate = total ? Math.round(done / total * 100) : 0;
 
   const subMap = {};
-  items.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
+  ownItems.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
   const subArr = Object.entries(subMap).sort((a, b) => b[1] - a[1]);
 
-  const filtered = filter === 'all' ? items : items.filter(i => i.status === filter);
+  const ownFiltered = ownFilter === 'all' ? ownItems : ownItems.filter(i => i.status === ownFilter);
+  const otherFiltered = otherFilter === 'all' ? otherItems : otherItems.filter(i => i.status === otherFilter);
 
   const saveRework = async () => {
     const { recordId, itemId, solution, due_date, status, rework_note } = rework;
@@ -606,6 +614,25 @@ function StoreDashboardView({ records, currentStore, onReload }) {
     setRework(null);
     onReload();
   };
+
+  const renderItemCard = (it, showAction) => (
+    <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+        <Badge text={it.sub} />
+        <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+        <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人 {it._record.submitter_store}</span>
+      </div>
+      <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+      <ImageGallery images={it.images} className="mb-2" />
+      {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+      {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
+      {showAction && (
+        <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
+          className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+      )}
+    </div>
+  );
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
@@ -672,36 +699,36 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h3 className="text-sm font-semibold text-gray-900">历史记录 & 整改记录</h3>
-          <div className="flex gap-2">
-            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
-              <button key={f.k} onClick={() => setFilter(f.k)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${filter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
-            ))}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">本门店问题</h3>
+            <div className="flex gap-2">
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+                <button key={f.k} onClick={() => setOwnFilter(f.k)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${ownFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
+              ))}
+            </div>
           </div>
+          {ownFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
+            <div className="space-y-3">{ownFiltered.map(it => renderItemCard(it, true))}</div>
+          )}
         </div>
-        {filtered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
-          <div className="space-y-3">
-            {filtered.map(it => (
-              <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
-                  <Badge text={it.sub} />
-                  <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人 {it._record.submitter_store}</span>
-                </div>
-                <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
-                <ImageGallery images={it.images} className="mb-2" />
-                {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
-                {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
-                <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
-                  className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
-              </div>
-            ))}
+
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">其他门店问题</h3>
+            <div className="flex gap-2">
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+                <button key={f.k} onClick={() => setOtherFilter(f.k)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${otherFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
+              ))}
+            </div>
           </div>
-        )}
+          {otherFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
+            <div className="space-y-3">{otherFiltered.map(it => renderItemCard(it, false))}</div>
+          )}
+        </div>
       </div>
 
       <Modal open={!!rework} onClose={() => setRework(null)} title="复盘跟进">
