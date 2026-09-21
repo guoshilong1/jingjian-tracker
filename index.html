@@ -499,7 +499,7 @@ function DashboardView({ records, currentStore, onReload }) {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {grouped[store].map(it => (
-              <div key={it.id} className="bg-white border border-gray-200 rounded-xl p-4">
+              <div key={it.id} className={`bg-white border border-gray-200 rounded-xl p-4 ${it.status === 'done' ? 'border-l-4 border-l-emerald-400' : ''}`}>
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
                   <Badge text={it.sub} />
@@ -636,7 +636,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   const renderRecordCard = (group, mode = 'own') => {
     const rec = group.record;
     return (
-      <div key={rec.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+      <div key={rec.id} className={`border border-gray-200 rounded-lg p-4 bg-gray-50 ${group.items.every(i => i.status === 'done') ? 'border-l-4 border-l-emerald-400' : ''}`}>
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="text-xs text-gray-400">{rec.week_label} · {formatDateTime(rec.created_at)} · {mode === 'own' ? '提交人' : '问题门店'} {mode === 'own' ? rec.submitter_store : rec.target_store}</span>
         </div>
@@ -754,7 +754,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-gray-900">{mobileTab === 'own' ? '本门店问题' : '其他门店问题'}</h3>
           <div className="flex gap-2">
-            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+            {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
               <button key={f.k} onClick={() => mobileTab === 'own' ? setOwnFilter(f.k) : setOtherFilter(f.k)}
                 className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${(mobileTab === 'own' ? ownFilter : otherFilter) === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
             ))}
@@ -771,7 +771,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-900">本门店问题</h3>
             <div className="flex gap-2">
-              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
                 <button key={f.k} onClick={() => setOwnFilter(f.k)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${ownFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
               ))}
@@ -786,7 +786,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold text-gray-900">其他门店问题</h3>
             <div className="flex gap-2">
-              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'overdue', t: '已超期' }].map(f => (
+              {[{ k: 'all', t: '全部' }, { k: 'pending', t: '待整改' }, { k: 'done', t: '已完成' }, { k: 'overdue', t: '已超期' }].map(f => (
                 <button key={f.k} onClick={() => setOtherFilter(f.k)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium border transition ${otherFilter === f.k ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : 'text-gray-600 border-gray-300 hover:bg-gray-100'}`}>{f.t}</button>
               ))}
