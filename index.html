@@ -9,6 +9,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     body { background: #eef2f7; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -69,6 +70,7 @@ const SUPABASE_URL = 'https://ltjmbmgofjqeezoskqrc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_KrCOzlUPTcrb8S4-ajTjww_EhKibtaC';
 const TABLE = 'mirror_checks';
 const DASH_PWD = '415';
+const MANAGER_LOGIN_PWD = '1216'; // 管理入口登录密码（郭士龙）
 const SUB_LABELS = [...ISSUE_CATEGORIES];
 const STORE_KEY = 'mirror_store';
 const LOCAL_KEY = 'mirror_records';
@@ -231,6 +233,19 @@ function Badge({ text, cls }) {
 /* ============ 登录 ============ */
 function LoginScreen({ onLogin }) {
   const [store, setStore] = useState('');
+  const [pwd, setPwd] = useState('');
+  const [err, setErr] = useState('');
+  const isMgr = store === MANAGER_STORE;
+
+  const handleLogin = () => {
+    setErr('');
+    if (!store) return;
+    if (isMgr) {
+      if (pwd.trim() !== MANAGER_LOGIN_PWD) { setErr('管理入口密码错误'); return; }
+    }
+    onLogin(store);
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-xl fade-in">
@@ -242,20 +257,37 @@ function LoginScreen({ onLogin }) {
         <label className="block text-sm text-gray-600 mb-2">你的门店</label>
         <select
           value={store}
-          onChange={e => setStore(e.target.value)}
-          className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-gray-900 focus:border-indigo-500 outline-none mb-5"
+          onChange={e => { setStore(e.target.value); setPwd(''); setErr(''); }}
+          className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-gray-900 focus:border-indigo-500 outline-none mb-4"
         >
           <option value="">— 请选择门店 —</option>
           {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
           <option value={MANAGER_STORE}>🔑 {MANAGER_STORE}</option>
         </select>
+
+        {isMgr && (
+          <div className="mb-4">
+            <label className="block text-sm text-gray-600 mb-2">管理入口密码</label>
+            <input
+              type="password"
+              value={pwd}
+              onChange={e => setPwd(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleLogin(); }}
+              placeholder="请输入管理密码"
+              className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-gray-900 focus:border-indigo-500 outline-none"
+            />
+          </div>
+        )}
+
+        {err && <p className="text-xs text-rose-600 mb-3 text-center">{err}</p>}
+
         <button
-          disabled={!store}
-          onClick={() => onLogin(store)}
+          disabled={!store || (isMgr && !pwd.trim())}
+          onClick={handleLogin}
           className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium transition"
         >进入系统</button>
         <p className="text-xs text-gray-600 mt-4 text-center">
-          {store === MANAGER_STORE ? '管理入口 · 直接进入管理看板查看全部门店' : '无密码 · 进入后可查看本店数据并提交镜检'}
+          {isMgr ? '管理入口 · 密码验证后进入管理看板查看全部门店' : '无密码 · 进入后可查看本店数据并提交镜检'}
         </p>
       </div>
     </div>
@@ -713,6 +745,9 @@ function MonthlyView({ records, currentStore, onReload }) {
   }, []);
   const [month, setMonth] = useState(monthOptions[0].key);
 
+  const TARGET_RATE = 80; // 月度闭环率目标线
+  const [drill, setDrill] = useState(null); // 选中的门店，下钻看类别
+
   const allItems = useMemo(() => {
     const out = [];
     records.forEach(r => (r.items || []).forEach(it => out.push({ ...it, _record: r })));
@@ -735,8 +770,11 @@ function MonthlyView({ records, currentStore, onReload }) {
   const prevDate = new Date(py, pm - 2, 1);
   const prevKey = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
   const prevItems = allItems.filter(i => inMonth(i._record.created_at, prevKey));
-  const prevRate = prevItems.length ? Math.round(prevItems.filter(i => i.status === 'verified').length / prevItems.length * 100) : 0;
+  const prevTotal = prevItems.length;
+  const prevVerified = prevItems.filter(i => i.status === 'verified').length;
+  const prevRate = prevTotal ? Math.round(prevVerified / prevTotal * 100) : 0;
   const rateDelta = rate - prevRate;
+  const newDelta = total - prevTotal; // 新增问题数环比
 
   // 周趋势（按 week_label 分组，垂直双柱：新增 / 该周问题已闭环）
   const weekMap = {};
@@ -749,17 +787,75 @@ function MonthlyView({ records, currentStore, onReload }) {
   const weeks = Object.keys(weekMap).sort();
   const weekMax = weeks.length ? Math.max(...weeks.map(w => weekMap[w].n)) : 1;
 
-  // 门店月度排名
+  // 时段（周内 / 周末）拆分
+  const periodSplit = useMemo(() => {
+    const wd = { total: 0, verified: 0, pending: 0 };
+    const we = { total: 0, verified: 0, pending: 0 };
+    monthItems.forEach(i => {
+      const p = i.period || i._record.period;
+      const t = p === 'weekend' ? we : wd;
+      t.total += 1;
+      if (i.status === 'verified') t.verified += 1;
+      if (i.status === 'pending') t.pending += 1;
+    });
+    const rateOf = (o) => o.total ? Math.round(o.verified / o.total * 100) : 0;
+    return { wd, we, wdRate: rateOf(wd), weRate: rateOf(we) };
+  }, [monthItems]);
+
+  // 门店月度统计（含逾期、平均闭环天数、类别明细）
   const storeMap = {};
   monthItems.forEach(i => {
     const k = i._record.target_store;
-    if (!storeMap[k]) storeMap[k] = { total: 0, verified: 0, pending: 0 };
-    storeMap[k].total += 1;
-    if (i.status === 'verified') storeMap[k].verified += 1;
-    if (i.status === 'pending') storeMap[k].pending += 1;
+    if (!storeMap[k]) storeMap[k] = { total: 0, verified: 0, pending: 0, overdue: 0, closeDays: [], subs: {} };
+    const m = storeMap[k];
+    m.total += 1;
+    if (i.status === 'verified') {
+      m.verified += 1;
+      const d0 = new Date(i._record.created_at).getTime();
+      const d1 = new Date(i._record.updated_at || i._record.created_at).getTime();
+      m.closeDays.push(Math.max(0, (d1 - d0) / 86400000));
+    }
+    if (i.status === 'pending') m.pending += 1;
+    if (i.status === 'overdue') m.overdue += 1;
+    m.subs[i.sub] = (m.subs[i.sub] || 0) + 1;
   });
-  const storeArr = Object.entries(storeMap).map(([s, m]) => ({ s, ...m, r: m.total ? Math.round(m.verified / m.total * 100) : 0 })).sort((a, b) => b.total - a.total);
+  const storeArr = Object.entries(storeMap).map(([s, m]) => {
+    const r = m.total ? Math.round(m.verified / m.total * 100) : 0;
+    const avgDays = m.closeDays.length ? +(m.closeDays.reduce((a, b) => a + b, 0) / m.closeDays.length).toFixed(1) : null;
+    const topSubs = Object.entries(m.subs).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([sub, c]) => `${sub}${c}`);
+    return { s, ...m, r, avgDays, topSubs };
+  }).sort((a, b) => b.total - a.total);
   const storeMax = storeArr.length ? storeArr[0].total : 1;
+  const avgRate = storeArr.length ? Math.round(storeArr.reduce((a, b) => a + b.r, 0) / storeArr.length) : 0;
+
+  // 连续高风险门店（近 3 个月，每月高风险 = 待整改≥3 或 闭环率<40）
+  const persist = useMemo(() => {
+    const flags = {};
+    monthOptions.forEach(o => {
+      const items = allItems.filter(i => inMonth(i._record.created_at, o.key));
+      const map = {};
+      items.forEach(i => {
+        const k = i._record.target_store;
+        if (!map[k]) map[k] = { total: 0, verified: 0, pending: 0 };
+        map[k].total += 1;
+        if (i.status === 'verified') map[k].verified += 1;
+        if (i.status === 'pending') map[k].pending += 1;
+      });
+      Object.entries(map).forEach(([s, m]) => {
+        const r = m.total ? (m.verified / m.total) * 100 : 0;
+        if (m.pending >= 3 || r < 40) { (flags[s] = flags[s] || new Set()).add(o.key); }
+      });
+    });
+    return Object.entries(flags)
+      .map(([s, set]) => ({ s, months: [...set].sort(), count: set.size }))
+      .filter(x => x.count >= 2)
+      .sort((a, b) => b.count - a.count);
+  }, [allItems, monthOptions]);
+
+  // 整改时效（整体）
+  const allCloseDays = storeArr.flatMap(m => m.closeDays);
+  const avgCloseDays = allCloseDays.length ? +(allCloseDays.reduce((a, b) => a + b, 0) / allCloseDays.length).toFixed(1) : null;
+  const slowStores = storeArr.filter(m => m.avgDays !== null).sort((a, b) => b.avgDays - a.avgDays).slice(0, 5);
 
   // 问题类别 TOP5
   const subMap = {};
@@ -770,29 +866,63 @@ function MonthlyView({ records, currentStore, onReload }) {
 
   const focus = storeArr.filter(m => m.pending >= 3 || m.r < 40);
 
+  const drillStore = drill ? storeMap[drill] : null;
+  const drillSubs = drillStore ? Object.entries(drillStore.subs).sort((a, b) => b[1] - a[1]) : [];
+  const drillMax = drillSubs.length ? drillSubs[0][1] : 1;
+
+  const rateColor = (r) => r >= TARGET_RATE ? '#10b981' : r >= 40 ? '#f59e0b' : '#f43f5e';
+
+  const exportXlsx = () => {
+    if (typeof XLSX === 'undefined') { alert('导出组件未加载，请刷新页面后重试'); return; }
+    const rows = monthItems.map(i => ({
+      '门店': i._record.target_store,
+      '提交门店': i._record.submitter_store,
+      '周': i._record.week_label,
+      '时段': PERIOD_LABELS[i.period || i._record.period],
+      '问题类别': i.sub,
+      '描述': i.desc,
+      '状态': STATUS_LABELS[i.status] || i.status,
+      '方案': i.solution || '',
+      '节点': i.due_date || '',
+      '创建时间': formatDateTime(i._record.created_at),
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, month + '镜检');
+    XLSX.writeFile(wb, `镜检月度_${month}.xlsx`);
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
       <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
         <h2 className="text-lg font-bold text-gray-900">月度看板 · 趋势分析</h2>
-        <select value={month} onChange={e => setMonth(e.target.value)}
-          className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 outline-none">
-          {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}（{o.key}）</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <button onClick={exportXlsx} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition">导出 Excel</button>
+          <select value={month} onChange={e => { setMonth(e.target.value); setDrill(null); }}
+            className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 outline-none">
+            {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}（{o.key}）</option>)}
+          </select>
+        </div>
       </div>
-      <p className="text-sm text-gray-500 mb-4">按自然月统计，横向对比各周、各门店、各类别表现，辅助月度复盘。</p>
+      <p className="text-sm text-gray-500 mb-4">按自然月统计，横向对比各周、各门店、各类别表现，辅助月度复盘。月度闭环率目标 <span className="font-medium text-gray-700">{TARGET_RATE}%</span>。</p>
 
       {/* 概览卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月新增问题</p><p className="text-2xl font-bold text-gray-900">{total}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">本月新增问题</p>
+          <p className="text-2xl font-bold text-gray-900">{total}</p>
+          <p className={`text-xs mt-1 ${newDelta > 0 ? 'text-rose-600' : newDelta < 0 ? 'text-emerald-600' : 'text-gray-400'}`}>{newDelta > 0 ? '▲' : newDelta < 0 ? '▼' : '—'} {Math.abs(newDelta)} 环比</p>
+        </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月待整改</p><p className="text-2xl font-bold text-amber-600">{pending}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月闭环</p><p className="text-2xl font-bold text-emerald-600">{verified}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3">
-          <div className="relative w-12 h-12 shrink-0 rounded-full" style={{ background: `conic-gradient(#10b981 ${rate}%, #e5e7eb ${rate}%)` }}>
-            <div className="absolute inset-1.5 bg-white rounded-full flex items-center justify-center"><span className="text-[11px] font-bold text-emerald-600">{rate}%</span></div>
+          <div className="relative w-12 h-12 shrink-0 rounded-full" style={{ background: `conic-gradient(${rateColor(rate)} ${rate}%, #e5e7eb ${rate}%)` }}>
+            <div className="absolute inset-1.5 bg-white rounded-full flex items-center justify-center"><span className="text-[11px] font-bold" style={{ color: rateColor(rate) }}>{rate}%</span></div>
           </div>
           <div>
             <p className="text-xs text-gray-500">月度闭环率</p>
             <p className={`text-xs font-medium ${rateDelta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{rateDelta >= 0 ? '▲' : '▼'} {Math.abs(rateDelta)}% 环比</p>
+            <p className="text-[10px] text-gray-400">目标 {TARGET_RATE}%</p>
           </div>
         </div>
       </div>
@@ -819,24 +949,77 @@ function MonthlyView({ records, currentStore, onReload }) {
         </div>
       </div>
 
-      {/* 门店月度排名 + 类别 TOP5 */}
+      {/* 时段拆分 + 整改时效 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-3">门店月度排名（按问题数）</p>
-          {storeArr.length === 0 ? <p className="text-xs text-gray-400">本月暂无数据</p> : (
-            <div className="space-y-2">
-              {storeArr.map((m, idx) => (
-                <div key={m.s} className="flex items-center gap-2 text-sm">
-                  <span className="w-4 text-gray-400 text-xs">{idx + 1}</span>
+          <p className="text-sm font-semibold text-gray-900 mb-3">时段分布（周内 / 周末）</p>
+          <div className="space-y-3">
+            {[['周内', periodSplit.wd, periodSplit.wdRate], ['周末', periodSplit.we, periodSplit.weRate]].map(([label, o, rt]) => {
+              const denom = periodSplit.wd.total + periodSplit.we.total || 1;
+              return (
+                <div key={label}>
+                  <div className="flex justify-between text-xs mb-1"><span className="text-gray-700">{label}</span><span className="text-gray-500">{o.total} 项 · 闭环 {rt}%</span></div>
+                  <div className="bg-gray-100 rounded-full h-3 overflow-hidden"><div className="h-3 rounded-full bg-indigo-500" style={{ width: `${o.total ? Math.round(o.total / denom * 100) : 0}%` }}></div></div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-400 mt-3">周末问题占比偏高，多与排班 / 带训相关，建议重点排查。</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">整改时效（SLA）</p>
+          <div className="flex items-center gap-6 mb-3">
+            <div><p className="text-xs text-gray-500">本月逾期</p><p className="text-2xl font-bold text-rose-600">{overdue}</p></div>
+            <div><p className="text-xs text-gray-500">全店平均闭环</p><p className="text-2xl font-bold text-gray-900">{avgCloseDays === null ? '—' : avgCloseDays + ' 天'}</p></div>
+          </div>
+          <p className="text-xs text-gray-500 mb-1">闭环最慢的门店（TOP5）</p>
+          {slowStores.length === 0 ? <p className="text-xs text-gray-400">本月暂无已闭环记录</p> : (
+            <div className="space-y-1.5">
+              {slowStores.map(m => (
+                <div key={m.s} className="flex items-center gap-2 text-xs">
                   <span className="w-24 truncate text-gray-700" title={m.s}>{m.s}</span>
-                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
-                    <div className="h-3 rounded-full" style={{ width: `${Math.round(m.total / storeMax * 100)}%`, background: m.r < 30 ? '#f43f5e' : m.r < 60 ? '#f59e0b' : '#10b981' }}></div>
-                  </div>
-                  <span className="w-16 text-right text-xs text-gray-500">闭环{m.r}%</span>
+                  <span className="w-16 text-right text-rose-600 font-medium">{m.avgDays} 天</span>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* 门店月度排名 + 类别 TOP5 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">门店月度排名（点击展开看类别）</p>
+          {storeArr.length === 0 ? <p className="text-xs text-gray-400">本月暂无数据</p> : (
+            <div className="space-y-1">
+              {storeArr.map((m, idx) => (
+                <div key={m.s}>
+                  <button onClick={() => setDrill(drill === m.s ? null : m.s)} className="w-full flex items-center gap-2 text-sm text-left hover:bg-gray-50 rounded px-1 py-1 transition">
+                    <span className="w-4 text-gray-400 text-xs">{idx + 1}</span>
+                    <span className="w-24 truncate text-gray-700" title={m.s}>{m.s}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                      <div className="h-3 rounded-full" style={{ width: `${Math.round(m.total / storeMax * 100)}%`, background: rateColor(m.r) }}></div>
+                    </div>
+                    <span className="w-16 text-right text-xs text-gray-500">闭环{m.r}%</span>
+                    {m.overdue > 0 && <span className="text-rose-600 text-xs w-12 text-right">逾期{m.overdue}</span>}
+                  </button>
+                  {drill === m.s && (
+                    <div className="ml-9 mt-1 mb-1 space-y-1">
+                      {drillSubs.length === 0 ? <p className="text-xs text-gray-400">无类别数据</p> : drillSubs.map(([sub, c]) => (
+                        <div key={sub} className="flex items-center gap-2 text-xs">
+                          <span className="w-24 truncate text-gray-600">{sub}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden"><div className="h-2.5 rounded-full bg-indigo-400" style={{ width: `${Math.round(c / drillMax * 100)}%` }}></div></div>
+                          <span className="w-6 text-right text-gray-500">{c}</span>
+                        </div>
+                      ))}
+                      <p className="text-[11px] text-gray-400">该店高频问题：{m.topSubs.join('、') || '—'}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400 mt-2">平均闭环率 {avgRate}% · 目标线 {TARGET_RATE}%（红 &lt;40% / 橙 &lt;{TARGET_RATE}% / 绿 达标）</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-sm font-semibold text-gray-900 mb-3">问题类别 TOP5（本月）</p>
@@ -858,14 +1041,28 @@ function MonthlyView({ records, currentStore, onReload }) {
         </div>
       </div>
 
-      {/* 重点关注门店 */}
-      <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
-        <p className="text-sm font-semibold text-rose-700 mb-2">重点关注门店</p>
+      {/* 连续高风险门店 */}
+      <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-5">
+        <p className="text-sm font-semibold text-rose-700 mb-2">连续高风险门店（近 3 个月 ≥2 月被标红）</p>
+        {persist.length === 0
+          ? <span className="text-xs text-rose-600">近 3 个月无连续高风险的门店，继续保持。</span>
+          : <div className="flex flex-wrap gap-2">
+              {persist.map(m => (
+                <span key={m.s} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-rose-300 text-xs text-rose-700">
+                  {m.s} · 连续 {m.count} 个月 · {m.months.join('/')}
+                </span>
+              ))}
+            </div>}
+      </div>
+
+      {/* 本月重点关注门店 */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <p className="text-sm font-semibold text-amber-700 mb-2">本月重点关注门店</p>
         {focus.length === 0
-          ? <span className="text-xs text-rose-600">本月无高风险门店（待整改&lt;3 且 闭环率≥40%），继续保持。</span>
+          ? <span className="text-xs text-amber-600">本月无高风险门店（待整改&lt;3 且 闭环率≥40%），继续保持。</span>
           : <div className="flex flex-wrap gap-2">
               {focus.map(m => (
-                <span key={m.s} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-rose-300 text-xs text-rose-700">
+                <span key={m.s} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-amber-300 text-xs text-amber-700">
                   {m.s} · 待整改{m.pending} · 闭环{m.r}%
                 </span>
               ))}
