@@ -573,6 +573,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   const [otherFilter, setOtherFilter] = useState('all');
   const [mobileTab, setMobileTab] = useState('own');
   const [rework, setRework] = useState(null);
+  const canEdit = (rec) => rec.target_store === currentStore;
 
   const ownItems = useMemo(() => {
     const out = [];
