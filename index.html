@@ -658,11 +658,12 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         </div>
         {canEdit(rec) && (
           <button onClick={() => {
-            const first = rec.items[0] || {};
+            const items = group.items || [];
+            const first = items[0] || {};
             setRework({
               recordId: rec.id,
               record: rec,
-              items: rec.items,
+              items,
               status: first.status || 'pending',
               solution: first.solution || '',
               due_date: first.due_date || '',
