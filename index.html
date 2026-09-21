@@ -600,39 +600,77 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   ownItems.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
   const subArr = Object.entries(subMap).sort((a, b) => b[1] - a[1]);
 
-  const ownFiltered = ownFilter === 'all' ? ownItems : ownItems.filter(i => i.status === ownFilter);
-  const otherFiltered = otherFilter === 'all' ? otherItems : otherItems.filter(i => i.status === otherFilter);
+  function groupByRecord(items) {
+    const map = {};
+    items.forEach(it => {
+      const rid = it._record.id;
+      if (!map[rid]) map[rid] = { record: it._record, items: [] };
+      map[rid].items.push(it);
+    });
+    return Object.values(map).sort((a, b) => new Date(b.record.created_at) - new Date(a.record.created_at));
+  }
+
+  const ownGroups = useMemo(() => groupByRecord(ownItems), [ownItems]);
+  const otherGroups = useMemo(() => groupByRecord(otherItems), [otherItems]);
+  const ownFiltered = ownFilter === 'all' ? ownGroups : ownGroups.filter(g => g.items.some(i => i.status === ownFilter));
+  const otherFiltered = otherFilter === 'all' ? otherGroups : otherGroups.filter(g => g.items.some(i => i.status === otherFilter));
 
   const saveRework = async () => {
-    const { recordId, itemId, solution, due_date, status, rework_note } = rework;
+    const { recordId, status, solution, due_date, rework_note } = rework;
     const rec = records.find(r => r.id === recordId);
     if (!rec) return;
-    const newItems = rec.items.map(it =>
-      it.id === itemId ? { ...it, solution, due_date, status, rework_note: status === 'overdue' ? rework_note : it.rework_note } : it
-    );
+    const newItems = rec.items.map(it => ({
+      ...it,
+      status,
+      solution,
+      due_date,
+      rework_note: status === 'overdue' ? rework_note : it.rework_note
+    }));
     await updateRecord(recordId, newItems);
     setRework(null);
     onReload();
   };
 
-  const renderItemCard = (it, showAction, mode = 'own') => (
-    <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
-        <Badge text={it.sub} />
-        <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-        <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · {mode === 'own' ? '提交人' : '问题门店'} {mode === 'own' ? it._record.submitter_store : it._record.target_store}</span>
+  const renderRecordCard = (group, mode = 'own') => {
+    const rec = group.record;
+    return (
+      <div key={rec.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="text-xs text-gray-400">{rec.week_label} · {formatDateTime(rec.created_at)} · {mode === 'own' ? '提交人' : '问题门店'} {mode === 'own' ? rec.submitter_store : rec.target_store}</span>
+        </div>
+        <div className="space-y-3">
+          {group.items.map(it => (
+            <div key={it.id} className="border-b border-gray-200 last:border-0 pb-3 last:pb-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                <Badge text={it.sub} />
+                <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                <span className="text-xs text-gray-400">{PERIOD_LABELS[it.period || rec.period]}</span>
+              </div>
+              <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+              <ImageGallery images={it.images} className="mb-1" />
+              {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+              {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
+            </div>
+          ))}
+        </div>
+        {canEdit(rec) && (
+          <button onClick={() => {
+            const first = rec.items[0] || {};
+            setRework({
+              recordId: rec.id,
+              record: rec,
+              items: rec.items,
+              status: first.status || 'pending',
+              solution: first.solution || '',
+              due_date: first.due_date || '',
+              rework_note: first.rework_note || ''
+            });
+          }} className="mt-3 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+        )}
       </div>
-      <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
-      <ImageGallery images={it.images} className="mb-2" />
-      {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
-      {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
-      {showAction && (
-        <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
-          className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
@@ -711,7 +749,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
             </div>
           </div>
           {ownFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
-            <div className="space-y-3">{ownFiltered.map(it => renderItemCard(it, true, 'own'))}</div>
+            <div className="space-y-3">{ownFiltered.map(g => renderRecordCard(g, 'own'))}</div>
           )}
         </div>
 
@@ -726,22 +764,30 @@ function StoreDashboardView({ records, currentStore, onReload }) {
             </div>
           </div>
           {otherFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
-            <div className="space-y-3">{otherFiltered.map(it => renderItemCard(it, false, 'other'))}</div>
+            <div className="space-y-3">{otherFiltered.map(g => renderRecordCard(g, 'other'))}</div>
           )}
         </div>
       </div>
 
-      <Modal open={!!rework} onClose={() => setRework(null)} title="复盘跟进">
+      <Modal open={!!rework} onClose={() => setRework(null)} title={`复盘跟进${rework ? `（${rework.items.length} 个问题）` : ''}`}>
         {rework && (
           <div className="space-y-3">
-            {rework.images && rework.images.length > 0 && (
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">问题图片</label>
-                <ImageGallery images={rework.images} />
-              </div>
-            )}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
+              {rework.items.map((it, idx) => (
+                <div key={it.id} className={idx < rework.items.length - 1 ? 'border-b border-gray-200 pb-3' : ''}>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                    <Badge text={it.sub} />
+                    <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                    <span className="text-xs text-gray-400">{PERIOD_LABELS[it.period || rework.record.period]}</span>
+                  </div>
+                  <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+                  <ImageGallery images={it.images} className="mb-1" />
+                </div>
+              ))}
+            </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">整改状态</label>
+              <label className="block text-xs text-gray-500 mb-1">统一整改状态</label>
               <select value={rework.status} onChange={e => setRework({ ...rework, status: e.target.value })}
                 className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
                 <option value="pending">待整改</option>
@@ -750,9 +796,9 @@ function StoreDashboardView({ records, currentStore, onReload }) {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">解决方案</label>
+              <label className="block text-xs text-gray-500 mb-1">统一解决方案</label>
               <textarea value={rework.solution} onChange={e => setRework({ ...rework, solution: e.target.value })} rows={3}
-                placeholder="针对这个问题怎么改"
+                placeholder="针对这批问题怎么改"
                 className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
             </div>
             <div>
