@@ -615,13 +615,13 @@ function StoreDashboardView({ records, currentStore, onReload }) {
     onReload();
   };
 
-  const renderItemCard = (it, showAction) => (
+  const renderItemCard = (it, showAction, mode = 'own') => (
     <div key={it.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
         <Badge text={it.sub} />
         <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-        <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人 {it._record.submitter_store}</span>
+        <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · {mode === 'own' ? '提交人' : '问题门店'} {mode === 'own' ? it._record.submitter_store : it._record.target_store}</span>
       </div>
       <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
       <ImageGallery images={it.images} className="mb-2" />
@@ -711,7 +711,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
             </div>
           </div>
           {ownFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
-            <div className="space-y-3">{ownFiltered.map(it => renderItemCard(it, true))}</div>
+            <div className="space-y-3">{ownFiltered.map(it => renderItemCard(it, true, 'own'))}</div>
           )}
         </div>
 
@@ -726,7 +726,7 @@ function StoreDashboardView({ records, currentStore, onReload }) {
             </div>
           </div>
           {otherFiltered.length === 0 ? <p className="text-sm text-gray-500 py-6 text-center">暂无记录</p> : (
-            <div className="space-y-3">{otherFiltered.map(it => renderItemCard(it, false))}</div>
+            <div className="space-y-3">{otherFiltered.map(it => renderItemCard(it, false, 'other'))}</div>
           )}
         </div>
       </div>
