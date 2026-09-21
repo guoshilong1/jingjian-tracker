@@ -77,6 +77,13 @@ function todayStr() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+function formatDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /* ============ 数据层（Supabase 优先，localStorage 兜底） ============ */
 function loadLocal() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'); } catch (e) { return []; } }
 function saveLocal(arr) { localStorage.setItem(LOCAL_KEY, JSON.stringify(arr)); }
@@ -500,12 +507,12 @@ function DashboardView({ records, currentStore, onReload }) {
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
                 <ImageGallery images={it.images} className="mb-2" />
-                <p className="text-xs text-gray-500 mb-1">提交人：{it._record.submitter_store} · {PERIOD_LABELS[it.period || it._record.period]} · {it._record.week_label}</p>
+                <p className="text-xs text-gray-500 mb-1">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人：{it._record.submitter_store}</p>
                 {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
                 {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
                 {canEdit(it._record) && (
                   <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
-                    className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+                    className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
                 )}
               </div>
             ))}
@@ -683,14 +690,14 @@ function StoreDashboardView({ records, currentStore, onReload }) {
                   <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
                   <Badge text={it.sub} />
                   <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · 提交人 {it._record.submitter_store}</span>
+                  <span className="text-xs text-gray-400">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人 {it._record.submitter_store}</span>
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
                 <ImageGallery images={it.images} className="mb-2" />
                 {it.solution && <p className="text-xs text-emerald-600">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
                 {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600">重盘：{it.rework_note}</p>}
                 <button onClick={() => setRework({ recordId: it._record.id, itemId: it.id, solution: it.solution, due_date: it.due_date, status: it.status, rework_note: it.rework_note, images: it.images })}
-                  className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
+                  className="mt-2 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
               </div>
             ))}
           </div>
@@ -816,7 +823,7 @@ function App() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200">
-        <div className="flex items-center justify-between px-4 h-[60px] max-w-5xl mx-auto">
+        <div className="flex flex-wrap items-center justify-between gap-y-2 px-4 py-2 min-h-[60px] h-auto max-w-5xl mx-auto">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white">🔍</div>
             <div>
@@ -827,14 +834,14 @@ function App() {
               </p>
             </div>
           </div>
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-1 flex-wrap justify-end">
             <button onClick={() => setView('submit')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>提交镜检</button>
+              className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>提交镜检</button>
             <button onClick={() => setView('store')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'store' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>门店看板</button>
+              className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'store' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>门店看板</button>
             <button onClick={openDashboard}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
-            <button onClick={logout} className="ml-1 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
+              className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
+            <button onClick={logout} className="ml-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
           </nav>
         </div>
       </header>
