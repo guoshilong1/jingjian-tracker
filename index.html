@@ -523,10 +523,14 @@ function DashboardView({ records, currentStore, onReload }) {
 
       {/* 管理感卡片：验收闭环率 + 本周动态 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-xs text-gray-500 mb-1">验收闭环率</p>
-          <p className="text-2xl font-bold text-emerald-600">{completeRate}%</p>
-          <p className="text-xs text-gray-400 mt-1">{verified} 已验收 / {total} 总问题</p>
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4">
+          <div className="relative w-16 h-16 shrink-0 rounded-full" style={{ background: `conic-gradient(#10b981 ${completeRate}%, #e5e7eb ${completeRate}%)` }}>
+            <div className="absolute inset-2 bg-white rounded-full flex items-center justify-center"><span className="text-sm font-bold text-emerald-600">{completeRate}%</span></div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 mb-1">验收闭环率</p>
+            <p className="text-xs text-gray-400">{verified} 已验收 / {total} 总问题</p>
+          </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-500 mb-1">本周新增</p>
@@ -543,25 +547,21 @@ function DashboardView({ records, currentStore, onReload }) {
       {/* 图表：问题类别占比 + 门店问题 TOP */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-3">问题类别占比（TOP5）</p>
+          <p className="text-sm font-semibold text-gray-900 mb-3">问题类别 TOP5</p>
           {total === 0 ? <p className="text-xs text-gray-400">暂无数据</p> : (
-            <div className="flex items-center gap-4">
-              <div className="w-24 h-24 rounded-full shrink-0" style={{
-                background: `conic-gradient(${subSlices.map((s, i, a) => {
-                  const prev = a.slice(0, i).reduce((sum, x) => sum + x.pct, 0);
-                  return `${s.color} ${prev}% ${prev + s.pct}%`;
-                }).join(', ')})`
-              }}></div>
-              <div className="space-y-2 text-sm">
-                {subSlices.map(s => (
-                  <div key={s.sub} className="flex items-center gap-2">
-                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: s.color }}></span>
-                    <span className="truncate max-w-[8rem]" title={s.sub}>{s.sub}</span>
+            <div className="space-y-2.5">
+              {subSlices.map(s => (
+                <div key={s.sub}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-700 truncate max-w-[8rem]" title={s.sub}>{s.sub}</span>
                     <span className="text-gray-500">{s.cnt}（{s.pct}%）</span>
                   </div>
-                ))}
-                {subArr.length > 5 && <div className="text-xs text-gray-400">另有 {subArr.length - 5} 项类别未显示</div>}
-              </div>
+                  <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="h-2.5 rounded-full" style={{ width: `${s.pct}%`, background: s.color }}></div>
+                  </div>
+                </div>
+              ))}
+              {subArr.length > 5 && <div className="text-xs text-gray-400">另有 {subArr.length - 5} 项类别未显示</div>}
             </div>
           )}
         </div>
@@ -696,6 +696,181 @@ function DashboardView({ records, currentStore, onReload }) {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/* ============ 月度看板（趋势分析） ============ */
+function MonthlyView({ records, currentStore, onReload }) {
+  const monthOptions = useMemo(() => {
+    const arr = [];
+    const now = new Date();
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      arr.push({ key: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: i === 0 ? '本月' : i === 1 ? '上月' : '上上月' });
+    }
+    return arr;
+  }, []);
+  const [month, setMonth] = useState(monthOptions[0].key);
+
+  const allItems = useMemo(() => {
+    const out = [];
+    records.forEach(r => (r.items || []).forEach(it => out.push({ ...it, _record: r })));
+    return out;
+  }, [records]);
+
+  const mk = (iso) => { const d = new Date(iso); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const inMonth = (iso, m) => mk(iso) === m;
+
+  const monthItems = allItems.filter(i => inMonth(i._record.created_at, month));
+  const total = monthItems.length;
+  const verified = monthItems.filter(i => i.status === 'verified').length;
+  const pending = monthItems.filter(i => i.status === 'pending').length;
+  const done = monthItems.filter(i => i.status === 'done').length;
+  const overdue = monthItems.filter(i => i.status === 'overdue').length;
+  const rate = total ? Math.round(verified / total * 100) : 0;
+
+  // 上月对比
+  const [py, pm] = month.split('-').map(Number);
+  const prevDate = new Date(py, pm - 2, 1);
+  const prevKey = prevDate.getFullYear() + '-' + String(prevDate.getMonth() + 1).padStart(2, '0');
+  const prevItems = allItems.filter(i => inMonth(i._record.created_at, prevKey));
+  const prevRate = prevItems.length ? Math.round(prevItems.filter(i => i.status === 'verified').length / prevItems.length * 100) : 0;
+  const rateDelta = rate - prevRate;
+
+  // 周趋势（按 week_label 分组，垂直双柱：新增 / 该周问题已闭环）
+  const weekMap = {};
+  monthItems.forEach(i => {
+    const w = i._record.week_label || '未知周';
+    if (!weekMap[w]) weekMap[w] = { n: 0, c: 0 };
+    weekMap[w].n += 1;
+    if (i.status === 'verified') weekMap[w].c += 1;
+  });
+  const weeks = Object.keys(weekMap).sort();
+  const weekMax = weeks.length ? Math.max(...weeks.map(w => weekMap[w].n)) : 1;
+
+  // 门店月度排名
+  const storeMap = {};
+  monthItems.forEach(i => {
+    const k = i._record.target_store;
+    if (!storeMap[k]) storeMap[k] = { total: 0, verified: 0, pending: 0 };
+    storeMap[k].total += 1;
+    if (i.status === 'verified') storeMap[k].verified += 1;
+    if (i.status === 'pending') storeMap[k].pending += 1;
+  });
+  const storeArr = Object.entries(storeMap).map(([s, m]) => ({ s, ...m, r: m.total ? Math.round(m.verified / m.total * 100) : 0 })).sort((a, b) => b.total - a.total);
+  const storeMax = storeArr.length ? storeArr[0].total : 1;
+
+  // 问题类别 TOP5
+  const subMap = {};
+  monthItems.forEach(i => { subMap[i.sub] = (subMap[i.sub] || 0) + 1; });
+  const subArr = Object.entries(subMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const subMax = subArr.length ? subArr[0][1] : 1;
+  const subColors = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#06b6d4'];
+
+  const focus = storeArr.filter(m => m.pending >= 3 || m.r < 40);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 fade-in">
+      <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-gray-900">月度看板 · 趋势分析</h2>
+        <select value={month} onChange={e => setMonth(e.target.value)}
+          className="bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 outline-none">
+          {monthOptions.map(o => <option key={o.key} value={o.key}>{o.label}（{o.key}）</option>)}
+        </select>
+      </div>
+      <p className="text-sm text-gray-500 mb-4">按自然月统计，横向对比各周、各门店、各类别表现，辅助月度复盘。</p>
+
+      {/* 概览卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月新增问题</p><p className="text-2xl font-bold text-gray-900">{total}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月待整改</p><p className="text-2xl font-bold text-amber-600">{pending}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">本月闭环</p><p className="text-2xl font-bold text-emerald-600">{verified}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3">
+          <div className="relative w-12 h-12 shrink-0 rounded-full" style={{ background: `conic-gradient(#10b981 ${rate}%, #e5e7eb ${rate}%)` }}>
+            <div className="absolute inset-1.5 bg-white rounded-full flex items-center justify-center"><span className="text-[11px] font-bold text-emerald-600">{rate}%</span></div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">月度闭环率</p>
+            <p className={`text-xs font-medium ${rateDelta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{rateDelta >= 0 ? '▲' : '▼'} {Math.abs(rateDelta)}% 环比</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 周趋势 */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
+        <p className="text-sm font-semibold text-gray-900 mb-3">周趋势（当月逐周：新增 / 该周问题已闭环）</p>
+        {weeks.length === 0 ? <p className="text-xs text-gray-400">本月暂无数据</p> : (
+          <div className="flex items-end justify-between gap-2 sm:gap-3 h-44">
+            {weeks.map(w => (
+              <div key={w} className="flex-1 flex flex-col items-center justify-end h-full min-w-0">
+                <div className="flex items-end gap-1 w-full justify-center" style={{ height: '78%' }}>
+                  <div className="w-3 sm:w-5 bg-indigo-400 rounded-t" style={{ height: `${Math.round(weekMap[w].n / weekMax * 100)}%` }} title={`新增 ${weekMap[w].n}`}></div>
+                  <div className="w-3 sm:w-5 bg-emerald-400 rounded-t" style={{ height: `${Math.round(weekMap[w].c / weekMax * 100)}%` }} title={`已闭环 ${weekMap[w].c}`}></div>
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1 text-center leading-tight truncate w-full">{w.replace(/-W/, ' W')}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-4 mt-2 text-xs text-gray-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-indigo-400"></span>新增</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-emerald-400"></span>已闭环</span>
+        </div>
+      </div>
+
+      {/* 门店月度排名 + 类别 TOP5 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">门店月度排名（按问题数）</p>
+          {storeArr.length === 0 ? <p className="text-xs text-gray-400">本月暂无数据</p> : (
+            <div className="space-y-2">
+              {storeArr.map((m, idx) => (
+                <div key={m.s} className="flex items-center gap-2 text-sm">
+                  <span className="w-4 text-gray-400 text-xs">{idx + 1}</span>
+                  <span className="w-24 truncate text-gray-700" title={m.s}>{m.s}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div className="h-3 rounded-full" style={{ width: `${Math.round(m.total / storeMax * 100)}%`, background: m.r < 30 ? '#f43f5e' : m.r < 60 ? '#f59e0b' : '#10b981' }}></div>
+                  </div>
+                  <span className="w-16 text-right text-xs text-gray-500">闭环{m.r}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">问题类别 TOP5（本月）</p>
+          {subArr.length === 0 ? <p className="text-xs text-gray-400">本月暂无数据</p> : (
+            <div className="space-y-2.5">
+              {subArr.map(([s, c], i) => (
+                <div key={s}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-gray-700 truncate max-w-[8rem]" title={s}>{s}</span>
+                    <span className="text-gray-500">{c}（{Math.round(c / total * 100)}%）</span>
+                  </div>
+                  <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="h-2.5 rounded-full" style={{ width: `${Math.round(c / subMax * 100)}%`, background: subColors[i % subColors.length] }}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 重点关注门店 */}
+      <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
+        <p className="text-sm font-semibold text-rose-700 mb-2">重点关注门店</p>
+        {focus.length === 0
+          ? <span className="text-xs text-rose-600">本月无高风险门店（待整改&lt;3 且 闭环率≥40%），继续保持。</span>
+          : <div className="flex flex-wrap gap-2">
+              {focus.map(m => (
+                <span key={m.s} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-rose-300 text-xs text-rose-700">
+                  {m.s} · 待整改{m.pending} · 闭环{m.r}%
+                </span>
+              ))}
+            </div>}
+      </div>
     </div>
   );
 }
@@ -1216,6 +1391,10 @@ function App() {
               <button onClick={() => setView('dashboard')}
                 className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
             )}
+            {isManager && (
+              <button onClick={() => setView('monthly')}
+                className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'monthly' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>月度看板</button>
+            )}
             <button onClick={logout} className="ml-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
           </nav>
         </div>
@@ -1237,6 +1416,8 @@ function App() {
         ? <SubmitView currentStore={store} onSubmitted={() => { refresh(); setView(isManager ? 'dashboard' : 'store'); }} />
         : view === 'store'
         ? <StoreDashboardView records={records} currentStore={store} onReload={refresh} />
+        : view === 'monthly'
+        ? <MonthlyView records={records} currentStore={store} onReload={refresh} />
         : <DashboardView records={records} currentStore={store} onReload={refresh} />}
 
       <Modal open={showPwd} onClose={() => setShowPwd(false)} title="管理看板密码">
