@@ -39,6 +39,10 @@ const STORE_LIST = [
   '太原19店（泰享里）',
 ];
 
+// 管理角色：专用入口，登录后直接进入管理看板；普通门店无「管理看板」入口
+const MANAGER_STORE = '郭士龙（管理）';
+const isManagerStore = (s) => s === MANAGER_STORE;
+
 const PRODUCT_SUBS = ['制作流程', '出品', '打卡表', '店长行为'];
 const SERVICE_SUBS = ['接待', '点单', '上菜', '餐中服务', '餐后收尾'];
 const SUBS_BY_CAT = { product: PRODUCT_SUBS, service: SERVICE_SUBS };
@@ -242,13 +246,16 @@ function LoginScreen({ onLogin }) {
         >
           <option value="">— 请选择门店 —</option>
           {STORE_LIST.map(s => <option key={s} value={s}>{s}</option>)}
+          <option value={MANAGER_STORE}>🔑 {MANAGER_STORE}</option>
         </select>
         <button
           disabled={!store}
           onClick={() => onLogin(store)}
           className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium transition"
         >进入系统</button>
-        <p className="text-xs text-gray-600 mt-4 text-center">无密码 · 进入后可查看本店数据并提交镜检</p>
+        <p className="text-xs text-gray-600 mt-4 text-center">
+          {store === MANAGER_STORE ? '管理入口 · 直接进入管理看板查看全部门店' : '无密码 · 进入后可查看本店数据并提交镜检'}
+        </p>
       </div>
     </div>
   );
@@ -1025,10 +1032,19 @@ function App() {
   const [localOnly, setLocalOnly] = useState(0);
   const [migrating, setMigrating] = useState(false);
 
+  const isManager = isManagerStore(store);
+
   const logout = () => { localStorage.removeItem(STORE_KEY); setStore(''); };
   const { show: closing, cancel: cancelClose } = useAutoClose(logout);
 
+  // 管理角色登录后默认进入管理看板；普通门店默认进入提交镜检（刷新/切换门店也回到默认视图）
+  useEffect(() => {
+    if (!store) return;
+    setView(isManager ? 'dashboard' : 'submit');
+  }, [store]);
+
   const openDashboard = () => {
+    if (isManager) { setView('dashboard'); return; } // 管理角色免密直接进入
     if (dashAuth) { setView('dashboard'); return; }
     setPwd(''); setPwdErr(''); setShowPwd(true);
   };
@@ -1100,10 +1116,14 @@ function App() {
           <nav className="flex items-center gap-1 flex-wrap justify-end">
             <button onClick={() => setView('submit')}
               className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'submit' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>提交镜检</button>
-            <button onClick={() => setView('store')}
-              className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'store' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>门店看板</button>
-            <button onClick={openDashboard}
-              className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
+            {!isManager && (
+              <button onClick={() => setView('store')}
+                className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'store' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>门店看板</button>
+            )}
+            {isManager && (
+              <button onClick={() => setView('dashboard')}
+                className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-600/20 text-indigo-600 border border-indigo-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}>管理看板</button>
+            )}
             <button onClick={logout} className="ml-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg text-xs sm:text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">退出</button>
           </nav>
         </div>
@@ -1122,7 +1142,7 @@ function App() {
       )}
 
       {view === 'submit'
-        ? <SubmitView currentStore={store} onSubmitted={() => { refresh(); setView('dashboard'); }} />
+        ? <SubmitView currentStore={store} onSubmitted={() => { refresh(); setView(isManager ? 'dashboard' : 'store'); }} />
         : view === 'store'
         ? <StoreDashboardView records={records} currentStore={store} onReload={refresh} />
         : <DashboardView records={records} currentStore={store} onReload={refresh} />}
