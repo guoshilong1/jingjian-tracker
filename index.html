@@ -117,7 +117,8 @@ async function insertRecord(rec) {
   }
 }
 async function updateRecord(id, items) {
-  const ts = Date.now();
+  // 注意：updated_at 是 timestamptz，必须传 ISO 字符串，不能用 Date.now() 数字（会 400 报错）
+  const ts = new Date().toISOString();
   try {
     const { error } = await supabase.from(TABLE).update({ items, updated_at: ts }).eq('id', id);
     if (error) throw error;
@@ -618,17 +619,13 @@ function StoreDashboardView({ records, currentStore, onReload }) {
   const otherFiltered = otherFilter === 'all' ? otherGroups : otherGroups.filter(g => g.items.some(i => i.status === otherFilter));
 
   const saveRework = async () => {
-    const { recordId, status, solution, due_date, rework_note } = rework;
-    const rec = records.find(r => r.id === recordId);
-    if (!rec) return;
-    const newItems = rec.items.map(it => ({
-      ...it,
-      status,
-      solution,
-      due_date,
-      rework_note: status === 'overdue' ? rework_note : it.rework_note
-    }));
-    await updateRecord(recordId, newItems);
+    if (!rework) return;
+    // 剔除内部附加字段 _record，并给缺失字段补默认值
+    const finalItems = rework.items.map(it => {
+      const { _record, ...rest } = it;
+      return { status: 'pending', solution: '', due_date: '', rework_note: '', ...rest };
+    });
+    await updateRecord(rework.recordId, finalItems);
     setRework(null);
     onReload();
   };
@@ -658,16 +655,13 @@ function StoreDashboardView({ records, currentStore, onReload }) {
         </div>
         {canEdit(rec) && (
           <button onClick={() => {
-            const items = group.items || [];
-            const first = items[0] || {};
             setRework({
               recordId: rec.id,
               record: rec,
-              items,
-              status: first.status || 'pending',
-              solution: first.solution || '',
-              due_date: first.due_date || '',
-              rework_note: first.rework_note || ''
+              items: (group.items || []).map(it => {
+                const { _record, ...itRest } = it;
+                return { status: 'pending', solution: '', due_date: '', rework_note: '', ...itRest };
+              })
             });
           }} className="mt-3 text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-300 hover:bg-indigo-100 transition">复盘 / 跟进</button>
         )}
@@ -800,48 +794,46 @@ function StoreDashboardView({ records, currentStore, onReload }) {
 
       <Modal open={!!rework} onClose={() => setRework(null)} title={`复盘跟进${rework ? `（${rework.items.length} 个问题）` : ''}`}>
         {rework && (
-          <div className="space-y-3">
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-3">
-              {rework.items.map((it, idx) => (
-                <div key={it.id} className={idx < rework.items.length - 1 ? 'border-b border-gray-200 pb-3' : ''}>
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
-                    <Badge text={it.sub} />
-                    <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
-                    <span className="text-xs text-gray-400">{PERIOD_LABELS[it.period || rework.record.period]}</span>
-                  </div>
-                  <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
-                  <ImageGallery images={it.images} className="mb-1" />
+          <div className="space-y-4">
+            {rework.items.map((it) => (
+              <div key={it.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <Badge text={it.category === 'product' ? '产品' : '服务'} cls={it.category === 'product' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-orange-50 text-orange-700 border-orange-300'} />
+                  <Badge text={it.sub} />
+                  <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                  <span className="text-xs text-gray-400">{PERIOD_LABELS[it.period || rework.record.period]}</span>
                 </div>
-              ))}
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">统一整改状态</label>
-              <select value={rework.status} onChange={e => setRework({ ...rework, status: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
-                <option value="pending">待整改</option>
-                <option value="done">已完成</option>
-                <option value="overdue">已超期（需重新复盘）</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">统一解决方案</label>
-              <textarea value={rework.solution} onChange={e => setRework({ ...rework, solution: e.target.value })} rows={3}
-                placeholder="针对这批问题怎么改"
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">整改时间节点</label>
-              <input type="date" value={rework.due_date} onChange={e => setRework({ ...rework, due_date: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none" />
-            </div>
-            {rework.status === 'overdue' && (
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">重新复盘说明（为何未达成）</label>
-                <textarea value={rework.rework_note} onChange={e => setRework({ ...rework, rework_note: e.target.value })} rows={2}
-                  className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
+                <p className="text-sm text-gray-700 leading-relaxed mb-1">{it.desc}</p>
+                <ImageGallery images={it.images} className="mb-1" />
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">整改状态</label>
+                  <select value={it.status || 'pending'} onChange={e => setRework(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, status: e.target.value } : x) }))}
+                    className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 outline-none">
+                    <option value="pending">待整改</option>
+                    <option value="done">已完成</option>
+                    <option value="overdue">已超期（需重新复盘）</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">解决方案</label>
+                  <textarea value={it.solution || ''} onChange={e => setRework(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, solution: e.target.value } : x) }))} rows={2}
+                    placeholder="这个问题怎么改"
+                    className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">整改时间节点</label>
+                  <input type="date" value={it.due_date || ''} onChange={e => setRework(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, due_date: e.target.value } : x) }))}
+                    className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none" />
+                </div>
+                {it.status === 'overdue' && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">重新复盘说明（为何未达成）</label>
+                    <textarea value={it.rework_note || ''} onChange={e => setRework(prev => ({ ...prev, items: prev.items.map(x => x.id === it.id ? { ...x, rework_note: e.target.value } : x) }))} rows={2}
+                      className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none resize-none" />
+                  </div>
+                )}
               </div>
-            )}
+            ))}
             <div className="flex gap-2 pt-1">
               <button onClick={() => setRework(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
               <button onClick={saveRework} className="flex-1 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition">保存</button>
