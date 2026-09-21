@@ -483,6 +483,23 @@ function DashboardView({ records, currentStore, onReload }) {
 
   const canEdit = (rec) => rec.target_store === currentStore;
 
+  // —— 管理看板增强统计（闭环率 / 本周动态 / 图表用）——
+  const total = allItems.length;
+  const verified = allItems.filter(i => i.status === 'verified').length;
+  const completeRate = total ? Math.round(verified / total * 100) : 0;
+  const weekStart = (() => { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); d.setHours(0, 0, 0, 0); return d; })();
+  const isThisWeek = (iso) => { const t = new Date(iso); return t >= weekStart; };
+  const newThisWeek = allItems.filter(i => isThisWeek(i._record.created_at)).length;
+  const closedThisWeek = allItems.filter(i => i.status === 'verified' && isThisWeek(i._record.updated_at || i._record.created_at)).length;
+  const productCnt = allItems.filter(i => i.category === 'product').length;
+  const serviceCnt = allItems.filter(i => i.category === 'service').length;
+  const productPct = total ? Math.round(productCnt / total * 100) : 0;
+  const servicePct = total ? 100 - productPct : 0;
+  const storeCountMap = {};
+  allItems.forEach(i => { const k = i._record.target_store; storeCountMap[k] = (storeCountMap[k] || 0) + 1; });
+  const topStores = Object.entries(storeCountMap).sort((a, b) => b[1] - a[1]);
+  const storeMax = topStores.length ? topStores[0][1] : 1;
+
   const saveRework = async () => {
     const { recordId, itemId, solution, due_date, status, rework_note } = rework;
     const rec = records.find(r => r.id === recordId);
@@ -506,6 +523,57 @@ function DashboardView({ records, currentStore, onReload }) {
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">待验收</p><p className="text-2xl font-bold text-sky-600">{allItems.filter(i => i.status === 'done').length}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">已验收</p><p className="text-2xl font-bold text-emerald-600">{allItems.filter(i => i.status === 'verified').length}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">已超期</p><p className="text-2xl font-bold text-rose-600">{allItems.filter(i => i.status === 'overdue').length}</p></div>
+      </div>
+
+      {/* 管理感卡片：验收闭环率 + 本周动态 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">验收闭环率</p>
+          <p className="text-2xl font-bold text-emerald-600">{completeRate}%</p>
+          <p className="text-xs text-gray-400 mt-1">{verified} 已验收 / {total} 总问题</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">本周新增</p>
+          <p className="text-2xl font-bold text-indigo-600">{newThisWeek}</p>
+          <p className="text-xs text-gray-400 mt-1">本周（周一至今）新提交</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">本周闭环</p>
+          <p className="text-2xl font-bold text-sky-600">{closedThisWeek}</p>
+          <p className="text-xs text-gray-400 mt-1">本周完成验收的问题</p>
+        </div>
+      </div>
+
+      {/* 图表：问题类别占比 + 门店问题 TOP */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">问题类别占比</p>
+          {total === 0 ? <p className="text-xs text-gray-400">暂无数据</p> : (
+            <div className="flex items-center gap-4">
+              <div className="w-24 h-24 rounded-full shrink-0" style={{ background: `conic-gradient(#3b82f6 0% ${productPct}%, #f97316 ${productPct}% 100%)` }}></div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm bg-blue-500"></span>产品 {productCnt}（{productPct}%）</div>
+                <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm bg-orange-500"></span>服务 {serviceCnt}（{servicePct}%）</div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">门店问题数 TOP</p>
+          {topStores.length === 0 ? <p className="text-xs text-gray-400">暂无数据</p> : (
+            <div className="space-y-2">
+              {topStores.map(([s, c]) => (
+                <div key={s} className="flex items-center gap-2 text-sm">
+                  <span className="w-28 truncate text-gray-700" title={s}>{s}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div className="h-3 rounded-full bg-indigo-500" style={{ width: `${Math.round(c / storeMax * 100)}%` }}></div>
+                  </div>
+                  <span className="w-6 text-right text-gray-600">{c}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-5">
@@ -535,9 +603,19 @@ function DashboardView({ records, currentStore, onReload }) {
 
       {Object.keys(grouped).map(store => (
         <div key={store} className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <h3 className="text-base font-semibold text-gray-900">{store}</h3>
-            <Badge text={`${grouped[store].length} 项`} />
+            {(() => {
+              const sTotal = grouped[store].length;
+              const sPending = grouped[store].filter(i => i.status === 'pending').length;
+              const sVerified = grouped[store].filter(i => i.status === 'verified').length;
+              const sRate = sTotal ? Math.round(sVerified / sTotal * 100) : 0;
+              return (<>
+                <Badge text={`${sTotal} 项`} />
+                <Badge text={`待整改 ${sPending}`} cls="bg-amber-100 text-amber-700 border-amber-300" />
+                <Badge text={`闭环率 ${sRate}%`} cls="bg-emerald-100 text-emerald-700 border-emerald-300" />
+              </>);
+            })()}
             {store === currentStore && <Badge text="本店可复盘" cls="bg-indigo-600 text-white border-indigo-600" />}
           </div>
           <div className="grid gap-3 md:grid-cols-2">
