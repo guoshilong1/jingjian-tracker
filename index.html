@@ -932,9 +932,16 @@ function DashboardView({ records, currentStore, onReload }) {
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{r.reason}</p>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 flex flex-col items-end gap-1">
                       <p className="text-lg font-bold text-rose-600">{r.value}</p>
                       <p className="text-xs text-gray-400">{formatDateTime(r.deduct_date)}</p>
+                      <button onClick={async () => {
+                          if (!window.confirm(`确定删除「${r.store}」这条 ${r.value} 分扣分记录？`)) return;
+                          const { error } = await supabase.from('execution_deductions').delete().eq('id', r.id);
+                          if (error) { alert('删除失败：' + error.message); return; }
+                          await loadExecRows();
+                        }}
+                        className="text-xs text-rose-600 hover:text-rose-700 hover:underline mt-1">删除</button>
                     </div>
                   </div>
                 ))}
