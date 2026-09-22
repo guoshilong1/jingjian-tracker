@@ -498,7 +498,11 @@ function DashboardView({ records, currentStore, onReload }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [rework, setRework] = useState(null);
   const [deleting, setDeleting] = useState(null); // { recordId, itemId, desc }
-  const [dashTab, setDashTab] = useState('problems'); // problems | submit
+  const [dashTab, setDashTab] = useState('problems'); // problems | submit | exec
+  const [execRows, setExecRows] = useState([]);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execRunning, setExecRunning] = useState(false);
+  const [execMsg, setExecMsg] = useState('');
 
   const allItems = useMemo(() => {
     const out = [];
@@ -524,6 +528,70 @@ function DashboardView({ records, currentStore, onReload }) {
   }, [filtered]);
 
   const canEdit = (rec) => rec.target_store === currentStore;
+
+  // —— 执行力记录（未提报扣分 / 未复盘扣分，每条独立不合并）——
+  const weekStartOf = (d) => { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; };
+  const thisWeekStart = () => weekStartOf(new Date());
+  const lastWeekStart = () => { const s = weekStartOf(new Date()); s.setDate(s.getDate() - 7); return s; };
+  const dayStr = (d) => { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+
+  // 本周未提报门店（提交人 submitter_store 在本周内有记录即算已提报）
+  const unreportedThisWeekStores = useMemo(() => {
+    const ws = thisWeekStart();
+    const reported = new Set();
+    records.forEach(r => { if (new Date(r.created_at) >= ws && STORE_LIST.includes(r.submitter_store)) reported.add(r.submitter_store); });
+    return STORE_LIST.filter(s => !reported.has(s));
+  }, [records]);
+  // 上周「本店为被检查门店」的问题全部仍为待整改（pending）的门店 → 未复盘追踪
+  const untrackedLastWeekStores = useMemo(() => {
+    const lw = lastWeekStart(); const lwe = new Date(lw.getTime() + 7 * 86400000);
+    const hasAny = {}, hasTracked = {};
+    records.forEach(r => {
+      const rt = new Date(r.created_at);
+      if (rt < lw || rt >= lwe) return;
+      (r.items || []).forEach(it => { const s = r.target_store; hasAny[s] = true; if (it.status && it.status !== 'pending') hasTracked[s] = true; });
+    });
+    return STORE_LIST.filter(s => hasAny[s] && !hasTracked[s]);
+  }, [records]);
+
+  const loadExecRows = useCallback(async () => {
+    setExecLoading(true);
+    try {
+      const { data, error } = await supabase.from('execution_deductions').select('*').order('deduct_date', { ascending: false });
+      if (error) throw error;
+      setExecRows(data || []);
+    } catch (e) { console.warn('[exec] 加载失败', e.message); }
+    setExecLoading(false);
+  }, []);
+  useEffect(() => { loadExecRows(); }, [loadExecRows]);
+
+  // 手动/自动执行扣分：type = submit(未提报) | track(未复盘)
+  const runDeduct = useCallback(async (type) => {
+    setExecRunning(true); setExecMsg('');
+    try {
+      const stores = type === 'submit' ? unreportedThisWeekStores : untrackedLastWeekStores;
+      const weekStart = dayStr(type === 'submit' ? thisWeekStart() : lastWeekStart());
+      const reason = type === 'submit' ? '本周未提交镜检（自动扣分）' : '上周问题未复盘追踪（自动扣分）';
+      if (stores.length === 0) { setExecMsg('无需扣分：所有门店均已达标。'); setExecRunning(false); return; }
+      // 幂等：同一周期同一类型已记录的门店不再重复扣
+      const { data: existing } = await supabase.from('execution_deductions').select('store').eq('deduct_type', type).eq('week_start', weekStart);
+      const done = new Set((existing || []).map(x => x.store));
+      const toInsert = stores.filter(s => !done.has(s)).map(s => ({ store: s, deduct_type: type, week_start: weekStart, deduct_date: new Date().toISOString(), reason, value: -1 }));
+      if (toInsert.length === 0) { setExecMsg('该周期此类型扣分已执行过，无需重复。'); setExecRunning(false); return; }
+      const { error } = await supabase.from('execution_deductions').insert(toInsert);
+      if (error) throw error;
+      setExecMsg(`已对 ${toInsert.length} 家门店执行${type === 'submit' ? '未提报' : '未复盘'}扣分（-1/店）。`);
+      await loadExecRows();
+    } catch (e) { setExecMsg('执行失败：' + e.message); }
+    setExecRunning(false);
+  }, [unreportedThisWeekStores, untrackedLastWeekStores, loadExecRows]);
+
+  // 各门店当前执行力得分（初始 0，可负，逐条累加）
+  const execScoreMap = useMemo(() => {
+    const m = {}; STORE_LIST.forEach(s => m[s] = 0);
+    execRows.forEach(r => { if (m[r.store] !== undefined) m[r.store] += (r.value || 0); });
+    return m;
+  }, [execRows]);
 
   // —— 管理看板增强统计（闭环率 / 本周动态 / 图表用）——
   const total = allItems.length;
@@ -579,6 +647,8 @@ function DashboardView({ records, currentStore, onReload }) {
           className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition ${dashTab === 'problems' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>问题汇总</button>
         <button onClick={() => setDashTab('submit')}
           className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition ${dashTab === 'submit' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>提报看板</button>
+        <button onClick={() => setDashTab('exec')}
+          className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition ${dashTab === 'exec' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>执行力记录</button>
       </div>
 
       {dashTab === 'problems' && (<div className="fade-in">
@@ -791,6 +861,86 @@ function DashboardView({ records, currentStore, onReload }) {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {dashTab === 'exec' && (
+        <div className="fade-in space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-1">门店执行力记录</h3>
+              <p className="text-sm text-gray-500">无基础分，按周扣分，逐条记录不合并；负分有效。每周日 23:00 查未提报、每周三 23:00 查未复盘，自动触发或由下方按钮手动执行。</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <button onClick={() => runDeduct('submit')} disabled={execRunning}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-500 text-white transition disabled:opacity-50">执行「未提报」扣分</button>
+            <button onClick={() => runDeduct('track')} disabled={execRunning}
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-orange-600 hover:bg-orange-500 text-white transition disabled:opacity-50">执行「未复盘」扣分</button>
+            <button onClick={() => loadExecRows()} disabled={execLoading}
+              className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition disabled:opacity-50">刷新</button>
+            {execMsg && <span className="text-sm text-gray-600">{execMsg}</span>}
+          </div>
+
+          {/* 实时应扣预览（当前周期尚未执行扣分的门店） */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-500 mb-2">本周应扣（未提报门店）</p>
+              {unreportedThisWeekStores.length === 0
+                ? <p className="text-sm text-emerald-600">全部已提报，无需扣分</p>
+                : <div className="flex flex-wrap gap-1.5">{unreportedThisWeekStores.map(s => <span key={s} className="px-2 py-0.5 rounded text-xs bg-rose-100 text-rose-700 border border-rose-200">{s}</span>)}</div>}
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-500 mb-2">上周应扣（问题未复盘门店）</p>
+              {untrackedLastWeekStores.length === 0
+                ? <p className="text-sm text-emerald-600">全部已复盘，无需扣分</p>
+                : <div className="flex flex-wrap gap-1.5">{untrackedLastWeekStores.map(s => <span key={s} className="px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700 border border-orange-200">{s}</span>)}</div>}
+            </div>
+          </div>
+
+          {/* 各门店当前执行力得分 */}
+          <div>
+            <p className="text-sm font-semibold text-gray-900 mb-2">各门店执行力得分（逐条累计，可负）</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {STORE_LIST.map(store => {
+                const score = execScoreMap[store];
+                return (
+                  <div key={store} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+                    <span className="text-sm text-gray-700 truncate" title={store}>{store}</span>
+                    <span className={`text-xl font-bold ${score < 0 ? 'text-rose-600' : score > 0 ? 'text-emerald-600' : 'text-gray-900'}`}>{score}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 扣分明细（逐条，不合并） */}
+          <div>
+            <p className="text-sm font-semibold text-gray-900 mb-2">扣分明细（共 {execRows.length} 条）</p>
+            {execLoading && <p className="text-sm text-gray-400">加载中…</p>}
+            {!execLoading && execRows.length === 0 && <p className="text-sm text-gray-400">暂无扣分记录。</p>}
+            {!execLoading && execRows.length > 0 && (
+              <div className="space-y-2">
+                {execRows.map((r, i) => (
+                  <div key={r.id || i} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-gray-900 truncate max-w-[10rem]" title={r.store}>{r.store}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.deduct_type === 'submit' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>{r.deduct_type === 'submit' ? '未提报' : '未复盘'}</span>
+                        <span className="text-xs text-gray-400">周期 {r.week_start}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{r.reason}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-rose-600">{r.value}</p>
+                      <p className="text-xs text-gray-400">{formatDateTime(r.deduct_date)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
