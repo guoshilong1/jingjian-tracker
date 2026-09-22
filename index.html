@@ -498,6 +498,7 @@ function DashboardView({ records, currentStore, onReload }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [rework, setRework] = useState(null);
   const [deleting, setDeleting] = useState(null); // { recordId, itemId, desc }
+  const [dashTab, setDashTab] = useState('problems'); // problems | submit
 
   const allItems = useMemo(() => {
     const out = [];
@@ -573,6 +574,14 @@ function DashboardView({ records, currentStore, onReload }) {
       <h2 className="text-lg font-bold text-gray-900 mb-1">管理看板 · 按门店汇总</h2>
       <p className="text-sm text-gray-500 mb-4">后台按被检查门店分类，可填解决方案与整改节点做复盘。</p>
 
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setDashTab('problems')}
+          className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition ${dashTab === 'problems' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>问题汇总</button>
+        <button onClick={() => setDashTab('submit')}
+          className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition ${dashTab === 'submit' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-300 text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}>提报看板</button>
+      </div>
+
+      {dashTab === 'problems' && (<div className="fade-in">
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">总问题</p><p className="text-2xl font-bold text-gray-900">{allItems.length}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-500 mb-1">待整改</p><p className="text-2xl font-bold text-amber-600">{allItems.filter(i => i.status === 'pending').length}</p></div>
@@ -718,6 +727,72 @@ function DashboardView({ records, currentStore, onReload }) {
           </div>
         </div>
       ))}
+      </div>)}
+
+      {dashTab === 'submit' && (
+        <div className="fade-in space-y-4">
+          <h3 className="text-lg font-bold text-gray-900 mb-1">本周门店提报看板</h3>
+          <p className="text-sm text-gray-500 mb-3">统计本周（周一至今日）各门店提交镜检次数，未提报门店高亮警示。</p>
+
+          {(() => {
+            const submitMap = {};
+            const lastMap = {};
+            records.forEach(r => {
+              if (isThisWeek(r.created_at) && STORE_LIST.includes(r.submitter_store)) {
+                submitMap[r.submitter_store] = (submitMap[r.submitter_store] || 0) + 1;
+                const t = new Date(r.created_at).getTime();
+                const last = lastMap[r.submitter_store];
+                if (!last || t > new Date(last).getTime()) lastMap[r.submitter_store] = r.created_at;
+              }
+            });
+            const reportedStores = STORE_LIST.filter(s => submitMap[s]).length;
+            const totalSubmissions = Object.values(submitMap).reduce((a, b) => a + b, 0);
+            const unreportedCount = STORE_LIST.length - reportedStores;
+            return (
+              <>
+                <div className="grid grid-cols-3 gap-3 mb-2">
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs text-gray-500 mb-1">已提报门店</p>
+                    <p className="text-2xl font-bold text-emerald-600">{reportedStores}<span className="text-sm text-gray-400 font-normal">/{STORE_LIST.length}</span></p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs text-gray-500 mb-1">本周总提报</p>
+                    <p className="text-2xl font-bold text-indigo-600">{totalSubmissions}</p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs text-gray-500 mb-1">未提报门店</p>
+                    <p className="text-2xl font-bold text-rose-600">{unreportedCount}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {STORE_LIST.map(store => {
+                    const count = submitMap[store] || 0;
+                    const last = lastMap[store];
+                    return (
+                      <div key={store} className={`rounded-xl p-4 border ${count === 0 ? 'bg-rose-50/40 border-rose-300' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <h4 className="font-semibold text-gray-900 text-sm truncate" title={store}>{store}</h4>
+                          {count === 0 ? (
+                            <span className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700 border border-rose-200">本周未提报</span>
+                          ) : (
+                            <span className="shrink-0 px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">已提报 {count} 次</span>
+                          )}
+                        </div>
+                        {count > 0 ? (
+                          <p className="text-xs text-gray-500">最近提交：{formatDateTime(last)}</p>
+                        ) : (
+                          <p className="text-xs text-rose-500">请尽快安排本周镜检提报</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       <Modal open={!!rework} onClose={() => setRework(null)} title="复盘跟进">
         {rework && (
