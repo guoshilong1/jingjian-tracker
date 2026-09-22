@@ -163,6 +163,20 @@ async function updateRecord(id, items) {
   }
 }
 
+async function deleteRecord(id) {
+  try {
+    const { error } = await supabase.from(TABLE).delete().eq('id', id);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn('[delete] 云端失败，清本地', e.message);
+    return false;
+  } finally {
+    const local = loadLocal().filter(r => r.id !== id);
+    saveLocal(local);
+  }
+}
+
 // 把仅存于本机浏览器（localStorage）的记录迁移到 Supabase 云端，便于手机/其他设备查看
 async function migrateLocalToCloud() {
   const local = loadLocal();
@@ -483,6 +497,7 @@ function DashboardView({ records, currentStore, onReload }) {
   const [periodFilter, setPeriodFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [rework, setRework] = useState(null);
+  const [deleting, setDeleting] = useState(null); // { recordId, itemId, desc }
 
   const allItems = useMemo(() => {
     const out = [];
@@ -537,6 +552,19 @@ function DashboardView({ records, currentStore, onReload }) {
     );
     await updateRecord(recordId, newItems);
     setRework(null);
+    onReload();
+  };
+
+  const handleDelete = async ({ recordId, itemId }) => {
+    const rec = records.find(r => r.id === recordId);
+    if (!rec) return;
+    const newItems = rec.items.filter(it => it.id !== itemId);
+    if (newItems.length === 0) {
+      await deleteRecord(recordId);
+    } else {
+      await updateRecord(recordId, newItems);
+    }
+    setDeleting(null);
     onReload();
   };
 
@@ -660,9 +688,14 @@ function DashboardView({ records, currentStore, onReload }) {
           <div className="grid gap-3 md:grid-cols-2">
             {grouped[store].map(it => (
               <div key={it.id} className={`bg-white border border-gray-200 rounded-xl p-4 ${it.status === 'verified' ? 'border-l-4 border-l-emerald-400' : it.status === 'done' ? 'border-l-4 border-l-sky-400' : (it.status === 'partial' || it.status === 'overdue') ? 'border-l-4 border-l-rose-400' : ''}`}>
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <Badge text={it.sub} cls="bg-indigo-50 text-indigo-700 border-indigo-300" />
-                  <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge text={it.sub} cls="bg-indigo-50 text-indigo-700 border-indigo-300" />
+                    <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                  </div>
+                  <button onClick={() => setDeleting({ recordId: it._record.id, itemId: it.id, desc: it.desc })}
+                    className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded transition shrink-0"
+                    title="删除问题">删除</button>
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
                 <ImageGallery images={it.images} className="mb-2" />
@@ -724,6 +757,19 @@ function DashboardView({ records, currentStore, onReload }) {
             <div className="flex gap-2 pt-1">
               <button onClick={() => setRework(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
               <button onClick={saveRework} className="flex-1 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white transition">保存</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="确认删除">
+        {deleting && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700">确定要删除这条问题吗？删除后不可恢复。</p>
+            <p className="text-xs text-gray-500 bg-gray-50 p-2 rounded leading-relaxed">{deleting.desc}</p>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setDeleting(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
+              <button onClick={() => handleDelete(deleting)} className="flex-1 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-500 text-white transition">确认删除</button>
             </div>
           </div>
         )}
