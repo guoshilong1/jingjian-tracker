@@ -127,10 +127,13 @@ async function loadRecords() {
     const { data, error } = await supabase.from(TABLE).select('*').order('created_at', { ascending: false });
     if (error) throw error;
     const cloud = data || [];
-    // 合并本地兜底（离线时写入的）与云端记录，避免提交后“消失”
-    const cloudIds = new Set(cloud.map(r => r.id));
-    const merged = [...cloud, ...local.filter(r => !cloudIds.has(r.id))];
-    return { data: merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), source: 'cloud' };
+    const cloudById = new Map(cloud.map(r => [r.id, r]));
+    const localById = new Map(local.map(r => [r.id, r]));
+    // 联网时以本地离线编辑（同 id）为准，避免离线修改被云端旧版覆盖；本地独有记录保留待迁移
+    const merged = cloud.map(c => localById.get(c.id) || c);
+    const localOnly = local.filter(r => !cloudById.has(r.id));
+    const mergedAll = [...merged, ...localOnly];
+    return { data: mergedAll.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), source: 'cloud' };
   } catch (e) {
     console.warn('[load] 云端失败，用本地兜底', e.message);
     return { data: local, source: 'local' };
@@ -177,17 +180,25 @@ async function deleteRecord(id) {
   }
 }
 
-// 把仅存于本机浏览器（localStorage）的记录迁移到 Supabase 云端，便于手机/其他设备查看
+// 把仅存于本机浏览器（localStorage）的离线记录同步到 Supabase 云端：
+// - 离线新建（id 非 uuid）→ insert（让 Supabase 生成 uuid）
+// - 离线编辑（id 是云端 uuid）→ update 按 id 覆盖，避免离线修改被云端旧版吞掉
 async function migrateLocalToCloud() {
   const local = loadLocal();
   if (!local.length) return 0;
   let ok = 0;
   for (const rec of local) {
     const payload = { ...rec };
-    delete payload.id; // 让 Supabase 生成 uuid，避免与云端冲突
+    const id = payload.id;
+    delete payload.id;
     try {
-      const { error } = await supabase.from(TABLE).insert(payload);
-      if (error) throw error;
+      if (id && /^[0-9a-fA-F-]{36}$/.test(id)) {
+        const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from(TABLE).insert(payload);
+        if (error) throw error;
+      }
       ok++;
     } catch (e) {
       console.warn('[migrate] 单条失败', e.message);
@@ -197,32 +208,7 @@ async function migrateLocalToCloud() {
   return ok;
 }
 
-/* ============ 防摸鱼：3 分钟无操作关闭 ============ */
-function useAutoClose(onClose) {
-  const [show, setShow] = useState(false);
-  const timer = useRef(null);
-  const closeTimer = useRef(null);
-  const reset = useCallback(() => {
-    setShow(false);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      setShow(true);
-      closeTimer.current = setTimeout(() => onClose(), 10000);
-    }, 180000);
-  }, [onClose]);
-  useEffect(() => {
-    const acts = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    acts.forEach(a => window.addEventListener(a, reset, { passive: true }));
-    reset();
-    return () => {
-      acts.forEach(a => window.removeEventListener(a, reset));
-      if (timer.current) clearTimeout(timer.current);
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
-  }, [reset]);
-  return { show, cancel: reset };
-}
+/* 3 分钟无操作自动关闭功能已移除（2026-09-22 用户要求取消） */
 
 /* ============ 通用组件 ============ */
 function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
@@ -1845,7 +1831,7 @@ function App() {
   const isManager = isManagerStore(store);
 
   const logout = () => { localStorage.removeItem(STORE_KEY); setStore(''); };
-  const { show: closing, cancel: cancelClose } = useAutoClose(logout);
+  /* 3 分钟自动关闭已取消（2026-09-22） */
 
   // 管理角色登录后默认进入管理看板；普通门店默认进入提交镜检（刷新/切换门店也回到默认视图）
   useEffect(() => {
@@ -1866,18 +1852,21 @@ function App() {
   const refresh = useCallback(async () => {
     setSyncStatus('connecting');
     const { data, source } = await loadRecords();
-    // 本机遗留记录（id 不是 uuid 的）：仅在云端连上时自动同步到云端，按钮仅作手动兜底
-    const localOnlyRecs = data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || ''));
-    if (source === 'cloud' && localOnlyRecs.length > 0) {
-      const n = await migrateLocalToCloud();
-      if (n > 0) {
-        const data2 = await loadRecords(); // 重新拉云端，数据已统一
-        setRecords(data2.data);
-        setLocalOnly(0);
-        setSyncStatus('connected');
-        return;
+    // 联网时若本机还有离线记录（新建或离线编辑），立即回推云端并清空本地，消除双轨
+    if (source === 'cloud') {
+      const local = loadLocal();
+      if (local.length > 0) {
+        const n = await migrateLocalToCloud();
+        if (n > 0) {
+          const data2 = await loadRecords(); // 重新拉云端，数据已统一
+          setRecords(data2.data);
+          setLocalOnly(0);
+          setSyncStatus('connected');
+          return;
+        }
       }
     }
+    const localOnlyRecs = data.filter(r => !/^[0-9a-fA-F-]{36}$/.test(r.id || ''));
     setRecords(data);
     setLocalOnly(localOnlyRecs.length);
     setSyncStatus(source === 'cloud' ? 'connected' : 'offline');
@@ -1902,7 +1891,10 @@ function App() {
         .subscribe();
     } catch (e) {}
     const poll = setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 12000);
-    return () => { if (channel) supabase.removeChannel(channel).catch(() => {}); clearInterval(poll); };
+    // 网络恢复时立即触发同步，把离线记录推上云端（双轨止血）
+    const onOnline = () => { refresh(); };
+    window.addEventListener('online', onOnline);
+    return () => { if (channel) supabase.removeChannel(channel).catch(() => {}); clearInterval(poll); window.removeEventListener('online', onOnline); };
   }, [store, refresh]);
 
   if (!store) return <LoginScreen onLogin={s => { localStorage.setItem(STORE_KEY, s); setStore(s); }} />;
@@ -1918,7 +1910,7 @@ function App() {
               <p className="text-xs text-gray-500 leading-tight">
                 镜检行动
                 <span className={`ml-1 ${syncStatus === 'offline' ? 'text-amber-600' : ''}`}>
-                  {syncStatus === 'connected' ? '· 已同步' : syncStatus === 'offline' ? '· 离线模式（数据仅本地）' : '· 连接中'}
+                  {syncStatus === 'connected' ? '· 已同步' : syncStatus === 'offline' ? '· 离线：记录仅存本机，联网自动同步' : '· 连接中'}
                 </span>
               </p>
             </div>
@@ -1975,15 +1967,7 @@ function App() {
         </div>
       </Modal>
 
-      {closing && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="bg-white border border-gray-300 rounded-2xl p-8 text-center max-w-sm fade-in">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">页面即将自动关闭</h3>
-            <p className="text-sm text-gray-600 mb-4">已连续 3 分钟没有操作，10 秒后关闭</p>
-            <p className="text-xs text-gray-600">动一下鼠标或按任意键即可继续使用</p>
-          </div>
-        </div>
-      )}
+      {/* 自动关闭弹窗已移除 */}
     </div>
   );
 }
