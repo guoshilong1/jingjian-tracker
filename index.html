@@ -489,6 +489,7 @@ function DashboardView({ records, currentStore, onReload }) {
   const [execLoading, setExecLoading] = useState(false);
   const [execRunning, setExecRunning] = useState(false);
   const [execMsg, setExecMsg] = useState('');
+  const [drillCategory, setDrillCategory] = useState(null); // 当前下钻的问题类别（it.sub 字符串）；null = 关闭弹窗
 
   const allItems = useMemo(() => {
     const out = [];
@@ -598,6 +599,20 @@ function DashboardView({ records, currentStore, onReload }) {
   const topStores = Object.entries(storeCountMap).sort((a, b) => b[1] - a[1]);
   const storeMax = topStores.length ? topStores[0][1] : 1;
 
+  // 下钻：按问题类别 -> 按被检查门店 target_store 分组
+  const drillGroups = useMemo(() => {
+    if (!drillCategory) return [];
+    const items = allItems.filter(i => i.sub === drillCategory);
+    const m = {};
+    items.forEach(it => {
+      const k = it._record.target_store || '未知门店';
+      (m[k] = m[k] || []).push(it);
+    });
+    return Object.entries(m)
+      .map(([store, items]) => ({ store, count: items.length, items }))
+      .sort((a, b) => b.count - a.count);
+  }, [drillCategory, allItems]);
+
   const saveRework = async () => {
     const { recordId, itemId, solution, due_date, status, rework_note, rework_images } = rework;
     const rec = records.find(r => r.id === recordId);
@@ -676,15 +691,16 @@ function DashboardView({ records, currentStore, onReload }) {
           {total === 0 ? <p className="text-xs text-gray-400">暂无数据</p> : (
             <div className="space-y-2.5">
               {subSlices.map(s => (
-                <div key={s.sub}>
+                <button key={s.sub} type="button" onClick={() => setDrillCategory(s.sub)}
+                  className="block w-full text-left cursor-pointer rounded-lg px-2 py-1 -mx-2 hover:bg-gray-50 active:bg-gray-100 transition">
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-gray-700 truncate max-w-[8rem]" title={s.sub}>{s.sub}</span>
-                    <span className="text-gray-500">{s.cnt}（{s.pct}%）</span>
+                    <span className="text-gray-500">{s.cnt}（{s.pct}%）· 点击下钻</span>
                   </div>
                   <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden">
                     <div className="h-2.5 rounded-full" style={{ width: `${s.pct}%`, background: s.color }}></div>
                   </div>
-                </div>
+                </button>
               ))}
               {subArr.length > 5 && <div className="text-xs text-gray-400">另有 {subArr.length - 5} 项类别未显示</div>}
             </div>
@@ -1023,6 +1039,51 @@ function DashboardView({ records, currentStore, onReload }) {
               <button onClick={() => setDeleting(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition">取消</button>
               <button onClick={() => handleDelete(deleting)} className="flex-1 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-500 text-white transition">确认删除</button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!drillCategory} onClose={() => setDrillCategory(null)}
+        title={drillCategory ? `「${drillCategory}」问题下钻` : ''} maxWidth="max-w-4xl">
+        {drillCategory && (
+          <div className="space-y-5">
+            <p className="text-xs text-gray-500">
+              共 {drillGroups.reduce((a, g) => a + g.count, 0)} 个问题，涉及 {drillGroups.length} 家门店
+              （按被检查门店 target_store 分组，按出现次数排序）
+            </p>
+            {drillGroups.length === 0 && <p className="text-sm text-gray-400">暂无数据</p>}
+            {drillGroups.map(g => (
+              <div key={g.store}>
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <h4 className="text-sm font-semibold text-gray-900">{g.store}</h4>
+                  <Badge text={`${g.count} 次`} cls="bg-indigo-100 text-indigo-700 border-indigo-300" />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {g.items.map(it => (
+                    <div key={it.id} className={`bg-white border border-gray-200 rounded-xl p-4 ${it.status === 'verified' ? 'border-l-4 border-l-emerald-400' : it.status === 'done' ? 'border-l-4 border-l-sky-400' : (it.status === 'partial' || it.status === 'overdue') ? 'border-l-4 border-l-rose-400' : ''}`}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge text={it.sub} cls="bg-indigo-50 text-indigo-700 border-indigo-300" />
+                          <Badge text={STATUS_LABELS[it.status] || '待整改'} cls={STATUS_COLOR[it.status] || ''} />
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-700 leading-relaxed mb-2">{it.desc}</p>
+                      <ImageGallery images={it.images} className="mb-2" />
+                      <p className="text-xs text-gray-500 mb-1">{it._record.week_label} · {PERIOD_LABELS[it.period || it._record.period]} · {formatDateTime(it._record.created_at)} · 提交人：{it._record.submitter_store}</p>
+                      {it.solution && <p className="text-xs text-emerald-600 mb-1">方案：{it.solution}{it.due_date ? `（节点 ${it.due_date}）` : ''}</p>}
+                      {it.rework_images && it.rework_images.length > 0 && <ImageGallery images={it.rework_images} className="mb-1" />}
+                      {it.status === 'overdue' && it.rework_note && <p className="text-xs text-rose-600 mb-1">重盘：{it.rework_note}</p>}
+                      {it.track_result && (
+                        <div className="mb-1">
+                          <p className="text-xs text-emerald-600">追踪（{it.tracker_store || it._record.submitter_store}）：{TRACK_LABELS[it.track_result]}{it.track_note ? ` — ${it.track_note}` : ''}</p>
+                          <ImageGallery images={it.track_images} className="mt-1" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Modal>
